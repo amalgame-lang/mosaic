@@ -1,0 +1,16 @@
+# amalgame.toml for compiling tools/livereload-daemon.am — picked
+# up by mosaic-dev.sh when it builds the daemon on first run.
+#
+# This isn't an installed amalgame package; it's a project manifest
+# that ties the daemon source to its only dep (net-http v0.4+).
+
+[package]
+name        = "mosaic-livereload-daemon"
+version     = "0.3.0"
+entry       = "livereload-daemon.am"
+description = "Internal Mosaic livereload daemon — broadcast `reload` to browser WSs."
+
+[[dependencies]]
+name = "net-http"
+git  = "github.com/amalgame-lang/amalgame-net-http"
+tag  = "v0.4.0"

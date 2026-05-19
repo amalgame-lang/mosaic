@@ -83,6 +83,19 @@ for s in mosaic mosaic-routes.sh mosaic-build.sh mosaic-dev.sh; do
     ok "$s → $BIN_DIR/"
 done
 
+# ── Install livereload daemon source ─────────────────────
+# mosaic dev builds this AM file the first time livereload kicks in
+# (or after a v0.X bump). Lives in $PREFIX/share/mosaic/ so it's
+# resolvable via SCRIPT_DIR/../share/mosaic from the bin scripts.
+SHARE_DIR="$PREFIX/share/mosaic"
+mkdir -p "$SHARE_DIR"
+for s in livereload-daemon.am livereload-daemon.toml; do
+    if [ -f "$SRC/tools/$s" ]; then
+        install -m 644 "$SRC/tools/$s" "$SHARE_DIR/$s"
+        ok "$s → $SHARE_DIR/"
+    fi
+done
+
 # ── PATH hint ────────────────────────────────────────────
 case ":$PATH:" in
     *:"$BIN_DIR":*) ;;
