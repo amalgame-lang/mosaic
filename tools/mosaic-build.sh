@@ -177,15 +177,21 @@ fi
 
 # ── Step 4: gcc link ─────────────────────────────────────────────
 # `-Wno-int-conversion` + `-Wno-incompatible-pointer-types` silence
-# the closure result/arg "pointer from integer" noise: amc's cgen
-# erases Closure arg/return types to i64 (intptr_t boxing inside
-# AmalgameClosure_callN), so passing `conn` (an AmalgameH1Conn*)
-# into a closure body produces a warning at every call site.
-# Runtime-safe on x86_64 (sizeof(void*)==sizeof(i64)) — the values
-# survive intact through the box/unbox.
+# the closure result/arg "pointer from integer" noise. With amc
+# v0.8.35+ typed closures (`Closure<A, R>`) the cgen emits proper
+# pointer casts on typed `Closure<…>` fields/locals — the warnings
+# only remain at sites that still pass bare `Closure`-typed
+# handlers (un-migrated packages) or that pass an inline lambda
+# directly to a typed-Closure method/ctor without binding to a
+# typed local first (lambda-param inference from method param
+# types is a pending amc enhancement; bind to `let h: Closure<…, R>`
+# or type the lambda param explicitly as a workaround).
 #
-# Proper fix: typed closures (`Closure<A, R>`) on the amc roadmap.
-# Once that lands, drop these flags here.
+# Drop these flags once amalgame-web v0.3+ and amalgame-net-http
+# v0.5+ ship typed-Closure handler signatures and all relevant
+# call sites in user code follow one of the two patterns above.
+# See docs/guide/02-language-tour.md "Typed closures (v0.8.35+)"
+# for the migration story.
 
 GCC_CMD=(gcc -O2 -I"$AMC_RUNTIME"
          -Wno-int-conversion -Wno-incompatible-pointer-types
