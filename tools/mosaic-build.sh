@@ -79,15 +79,39 @@ echo "→ amc          $AMC"
 echo "→ amc runtime  $AMC_RUNTIME"
 echo "→ libamalgame  $LIBAMALGAME"
 
+# ── Step 0: sanity-check the project layout ──────────────────────
+
+if [ ! -f amalgame.toml ]; then
+    echo "error: no amalgame.toml in $PWD" >&2
+    echo "       (are you running this from a Mosaic app directory?)" >&2
+    exit 1
+fi
+if [ ! -f amalgame.lock ]; then
+    echo "error: no amalgame.lock in $PWD" >&2
+    echo "       Run \`amc package add\` for each dependency FROM THIS" >&2
+    echo "       DIRECTORY so the lockfile gets generated here. e.g.:" >&2
+    echo "         amc package add web@v0.2.1" >&2
+    echo "         amc package add net-http@v0.2.0" >&2
+    exit 1
+fi
+
 # ── Step 1: regenerate _routes.am ───────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 "$SCRIPT_DIR/mosaic-routes.sh" "$APP_DIR" _routes.am
 
 # ── Step 2: amc → server.c ───────────────────────────────────────
+# Don't pipe through tail — we need the full error output if amc's
+# resolver chokes on a missing package import. set -e + pipefail
+# would otherwise swallow the error message with only "Build OK"
+# echoed at the end (amc emits "Build OK" even when its resolver
+# fails — known amc quirk worth filing).
 
 NAME="$(basename "${ENTRY%.am}")"
-"$AMC" "$ENTRY" _routes.am -o "$NAME" 2>&1 | tail -8
+if ! "$AMC" "$ENTRY" _routes.am -o "$NAME"; then
+    echo "error: amc failed — see resolver errors above" >&2
+    exit 1
+fi
 
 if [ ! -f "$NAME.c" ]; then
     echo "error: amc didn't generate $NAME.c" >&2
