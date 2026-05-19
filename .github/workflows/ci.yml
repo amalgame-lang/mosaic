@@ -38,8 +38,8 @@ jobs:
 
       - name: Install package deps (amalgame-web, amalgame-net-http)
         run: |
-          "$AMC" package add web@v0.2.1     # bumped after the tools/ move
-          "$AMC" package add net-http@v0.2.0
+          "$AMC" package add web@v0.2.1
+          "$AMC" package add net-http@v0.2.1  # Http1.Serve lives here
 
       - name: Run mosaic smoke tests
         run: ./tests/run_tests.sh "$AMC"
