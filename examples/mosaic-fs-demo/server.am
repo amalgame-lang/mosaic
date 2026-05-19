@@ -1,9 +1,14 @@
 // Mosaic filesystem-routing demo — serves the routes discovered in
-// `app/` over HTTP/2 cleartext (h2c).
+// `app/` over plain HTTP/1.1 (browser-friendly).
+//
+// To test HTTP/2 cleartext (h2c) instead, swap the H1* refs for H2*
+// and change `Http1.Serve(...)` → `Http2.Serve(...)`. Browsers refuse
+// h2c (they require ALPN h2 over TLS), so test it with
+// `curl --http2-prior-knowledge http://localhost:3000/`.
 //
 // Build:
 //   tools/mosaic-routes.sh app _routes.am
-//   amc build server.am
+//   amc server.am _routes.am -o server  (+ gcc; or use mosaic-build.sh)
 
 namespace App
 
@@ -18,18 +23,17 @@ public class Program {
 
         Console.WriteLine("Mosaic v0.2 — filesystem routing demo")
         Console.WriteLine("  " + String_FromInt(r.Routes.Count()) + " routes registered from app/")
-        Console.WriteLine("  listening on http://localhost:3000 (h2c)")
-        Console.WriteLine("  try:  curl --http2-prior-knowledge http://localhost:3000/")
+        Console.WriteLine("  open http://localhost:3000/ in any browser")
         Console.WriteLine("")
 
         let handler = conn => {
-            let method: string = H2Conn.Method(conn)
-            let path:   string = H2Conn.Path(conn)
+            let method: string = H1Conn.Method(conn)
+            let path:   string = H1Conn.Path(conn)
             Console.WriteLine("[" + method + "] " + path)
 
             let m: RouteMatch = r.Match(method, path)
             if (m == null) {
-                H2Conn.Respond(conn, 404, "text/plain", "Not Found\n")
+                H1Conn.Respond(conn, 404, "text/plain", "Not Found\n")
                 return 0
             }
             let ctx = new WebContext()
@@ -38,10 +42,10 @@ public class Program {
 
             let ct: string = resp.Headers.Get("Content-Type")
             if (String_Length(ct) == 0) { ct = "text/plain; charset=utf-8" }
-            H2Conn.Respond(conn, resp.StatusCode, ct, resp.BodyText)
+            H1Conn.Respond(conn, resp.StatusCode, ct, resp.BodyText)
             return 0
         }
 
-        Http2.Serve(3000, handler)
+        Http1.Serve(3000, handler)
     }
 }
