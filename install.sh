@@ -38,10 +38,29 @@ if [ "$VERSION" = "latest" ]; then
         VERSION=$(gh release view --repo "$REPO" --json tagName -q .tagName 2>/dev/null || echo "")
     fi
     if [ -z "$VERSION" ]; then
-        VERSION=$(curl -sSL "https://api.github.com/repos/$REPO/releases/latest" \
-                  | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": "\(.*\)".*/\1/')
+        # Fall back to the GitHub API. Returns empty body when there
+        # are no published releases yet — fail loudly with guidance
+        # instead of silently exiting.
+        API_BODY=$(curl -sSL "https://api.github.com/repos/$REPO/releases/latest")
+        VERSION=$(printf '%s' "$API_BODY" | grep '"tag_name"' | head -1 \
+                  | sed 's/.*"tag_name": "\(.*\)".*/\1/')
     fi
-    [ -z "$VERSION" ] && { echo "error: couldn't resolve latest tag"; exit 1; }
+    if [ -z "$VERSION" ]; then
+        cat >&2 <<EOF
+error: couldn't resolve the latest mosaic tag.
+
+  This usually means no GitHub Release has been published for the
+  repo yet (tags alone are not enough). To install a specific
+  version directly:
+
+      MOSAIC_VERSION=v0.2.1 \\
+        curl -sSL https://raw.githubusercontent.com/$REPO/main/install.sh | bash
+
+  Or browse the available tags:
+      https://github.com/$REPO/tags
+EOF
+        exit 1
+    fi
 fi
 [ "${VERSION#v}" = "$VERSION" ] && VERSION="v$VERSION"
 say "Installing mosaic $VERSION → $PREFIX"
