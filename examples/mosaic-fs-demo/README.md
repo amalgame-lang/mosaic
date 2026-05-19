@@ -1,7 +1,12 @@
 # mosaic-fs-demo
 
 Filesystem-routing demo for **amalgame-web v0.2** served over
-**HTTP/2 cleartext** via amalgame-net-http v0.2's `Http2.Serve`.
+plain **HTTP/1.1** via amalgame-net-http v0.2.1's `Http1.Serve`.
+Browser-compatible out of the box — open <http://localhost:3000/>
+in Chrome / Firefox / Safari, no certificates needed.
+
+To swap to HTTP/2 cleartext (h2c) for benchmarking / gRPC
+compatibility, see the "Swap to h2c" section at the bottom.
 
 ## Layout
 
@@ -54,31 +59,47 @@ Path-to-route mapping:
 
 Requires:
 - `amc` ≥ v0.8.34 (multi-class dispatch fix)
-- `amalgame-web@v0.2.0` (this package, for the build tool)
-- `amalgame-net-http@v0.2.0` (for `Http2.Serve`)
+- `amalgame-web@v0.2.1` (runtime library)
+- `amalgame-net-http@v0.2.1` (for `Http1.Serve` / `Http2.Serve`)
 - `libgc-dev`, `libnghttp2-dev`
 
 ```bash
-amc package add web@v0.2.0
-amc package add net-http@v0.2.0
+amc package add web@v0.2.1
+amc package add net-http@v0.2.1
 mosaic-build.sh                # → ./server
-./server                       # listens on :3000 (h2c)
+./server                       # listens on :3000 (HTTP/1.1, browser-friendly)
 ```
+
+Then open <http://localhost:3000/> in any browser.
 
 `mosaic-build.sh` runs three steps:
 1. `mosaic-routes.sh app _routes.am` — scan + emit glue
 2. `amc server.am _routes.am -o server` — compile
 3. `gcc` with package archives + `-lnghttp2 -lgc -lm -lz`
 
-## Verify
+## Verify with curl
 
 ```bash
-curl --http2-prior-knowledge http://localhost:3000/
-curl --http2-prior-knowledge http://localhost:3000/about
-curl --http2-prior-knowledge http://localhost:3000/users/42
-curl --http2-prior-knowledge http://localhost:3000/api/info
-curl --http2-prior-knowledge -X POST http://localhost:3000/api/info
+curl -i http://localhost:3000/                       # HTTP/1.1 200, HTML
+curl -i http://localhost:3000/about                  # HTTP/1.1 200, text
+curl -i http://localhost:3000/users/42               # HTTP/1.1 200, "User #42"
+curl -i http://localhost:3000/api/info               # HTTP/1.1 200, JSON
+curl -i -X POST http://localhost:3000/api/info       # HTTP/1.1 201
+curl -i http://localhost:3000/nope                   # HTTP/1.1 404
 ```
+
+## Swap to HTTP/2 cleartext (h2c)
+
+Edit `server.am` — replace every `H1Conn` with `H2Conn` and
+`Http1.Serve` with `Http2.Serve`. Then test with curl's prior-
+knowledge flag:
+
+```bash
+curl --http2-prior-knowledge -i http://localhost:3000/
+```
+
+Browsers will *not* speak h2c — they require HTTP/2 over TLS+ALPN.
+That ships in `amalgame-net-http v0.2.x` (planned).
 
 Every status line is `HTTP/2 2xx` (or `HTTP/2 404` for an unknown
 path) — real h2 framing on the wire.
