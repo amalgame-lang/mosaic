@@ -55,11 +55,14 @@ tar -xzf "$TMP/mosaic.tar.gz" -C "$TMP"
 SRC="$(find "$TMP" -maxdepth 1 -type d -name 'mosaic-*' | head -1)"
 
 # ── Install scripts ──────────────────────────────────────
+# The `mosaic` dispatcher routes subcommands to the *-sh scripts
+# (which it locates via $SCRIPT_DIR relative to itself). Install
+# all four into the same bin dir so they stay siblings.
 mkdir -p "$BIN_DIR"
-install -m 755 "$SRC/tools/mosaic-routes.sh" "$BIN_DIR/mosaic-routes.sh"
-install -m 755 "$SRC/tools/mosaic-build.sh"  "$BIN_DIR/mosaic-build.sh"
-ok "mosaic-routes.sh → $BIN_DIR/"
-ok "mosaic-build.sh  → $BIN_DIR/"
+for s in mosaic mosaic-routes.sh mosaic-build.sh mosaic-dev.sh; do
+    install -m 755 "$SRC/tools/$s" "$BIN_DIR/$s"
+    ok "$s → $BIN_DIR/"
+done
 
 # ── PATH hint ────────────────────────────────────────────
 case ":$PATH:" in
@@ -71,6 +74,7 @@ esac
 echo ""
 ok "Installed. Quickstart:"
 echo "    amc package add web@v0.2.1"
-echo "    amc package add net-http@v0.2.0"
+echo "    amc package add net-http@v0.2.1"
 echo "    mkdir app && curl -s https://raw.githubusercontent.com/$REPO/main/examples/mosaic-fs-demo/app/index.am > app/index.am"
-echo "    mosaic-build.sh && ./server"
+echo "    mosaic dev               # watches + reloads on every save"
+echo "    # or for a one-shot build:  mosaic build && ./server"

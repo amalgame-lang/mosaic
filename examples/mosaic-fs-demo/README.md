@@ -66,11 +66,17 @@ Requires:
 ```bash
 amc package add web@v0.2.1
 amc package add net-http@v0.2.1
-mosaic-build.sh                # → ./server
-./server                       # listens on :3000 (HTTP/1.1, browser-friendly)
+
+# DEV mode — auto-reload on every save:
+mosaic dev
+
+# or one-shot:
+mosaic build && ./server
 ```
 
-Then open <http://localhost:3000/> in any browser.
+Then open <http://localhost:3000/> in any browser. In `mosaic dev`,
+edit any file under `app/` and refresh the browser tab: the
+server is rebuilt + restarted automatically (typically under 1 s).
 
 `mosaic-build.sh` runs three steps:
 1. `mosaic-routes.sh app _routes.am` — scan + emit glue

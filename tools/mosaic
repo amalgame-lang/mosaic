@@ -1,0 +1,62 @@
+#!/bin/bash
+# ─────────────────────────────────────────────────────────────────
+#  mosaic — dispatcher CLI for the Mosaic build tool
+#
+#  Routes subcommands to the corresponding scripts. Lets users type
+#    mosaic build
+#    mosaic dev
+#    mosaic routes app
+#  instead of `mosaic-build.sh` etc. — proper CLI ergonomics.
+#
+#  This is still bash today; in v0.4+ the whole thing will be
+#  rewritten as an AM program shipped as a single binary, mirroring
+#  how `amc` itself is distributed.
+# ─────────────────────────────────────────────────────────────────
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+
+usage() {
+    cat <<EOF
+mosaic — Amalgame web app build tool
+
+Commands:
+  mosaic build [...]    Build the project: regen _routes.am from app/,
+                        compile via amc, link via gcc, produce ./server.
+  mosaic dev [...]      DEV mode — watch app/ + server.am, rebuild and
+                        restart on every change. Ctrl-C to stop.
+  mosaic routes [DIR]   Just regenerate _routes.am from the given app
+                        dir (defaults to ./app).
+  mosaic version        Show installed version.
+  mosaic help           This message.
+
+Common flags (build / dev):
+  --app DIR             App dir (default: app)
+  --entry FILE          Entry .am file (default: server.am)
+  -o OUT                Output binary path (default: ./<entry-stem>)
+
+Examples:
+  mosaic dev                          # watch + reload, listens on :3000
+  mosaic build -o ./dist/server       # one-shot prod build
+  mosaic routes my-app                # only regen routes, don't compile
+
+See https://github.com/amalgame-lang/mosaic
+EOF
+}
+
+case "${1:-help}" in
+    build)          shift; exec "$SCRIPT_DIR/mosaic-build.sh"  "$@" ;;
+    dev)            shift; exec "$SCRIPT_DIR/mosaic-dev.sh"    "$@" ;;
+    routes)         shift; exec "$SCRIPT_DIR/mosaic-routes.sh" "$@" ;;
+    version|-v|--version)
+        echo "mosaic v0.2.0"
+        ;;
+    help|-h|--help)
+        usage
+        ;;
+    *)
+        echo "mosaic: unknown command '$1' (try 'mosaic help')" >&2
+        exit 2
+        ;;
+esac
