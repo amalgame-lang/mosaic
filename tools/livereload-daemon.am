@@ -64,6 +64,15 @@ import Amalgame.Net.Http
                 pfds[2 + i].events = POLLIN;  /* surface peer close */
             }
             int nfds = 2 + n_conns;
+            /* Snapshot the count BEFORE poll — any new conn we
+             * Accept below ends up at conns[initial_n] but has NO
+             * matching pfds[] entry. Iterating to n_conns - 1 would
+             * read uninitialised pfds[].revents (POLLHUP bit hits
+             * roughly 1/4 of the time) and silently kick the
+             * just-accepted browser. Real bug seen during v0.3.0:
+             * page reloads once, then stops because every new WS
+             * gets shotgunned on connection. */
+            int initial_n = n_conns;
             int rv = poll(pfds, nfds, 30000);  /* 30 s idle wake */
             if (rv < 0) {
                 if (errno == EINTR) continue;
@@ -117,8 +126,11 @@ import Amalgame.Net.Http
                 }
             }
 
-            /* ── prune disconnected conns (read end → 0) ── */
-            for (int i = n_conns - 1; i >= 0; i--) {
+            /* ── prune disconnected conns (read end → 0) ──
+             * Only iterate over conns that EXISTED before poll(2),
+             * not the newly-accepted ones from this iteration —
+             * their pfds slot is uninitialised. */
+            for (int i = initial_n - 1; i >= 0; i--) {
                 short re = pfds[2 + i].revents;
                 if (re & (POLLHUP | POLLERR | POLLNVAL)) {
                     Amalgame_Net_Http_WsConn_Close(conns[i]);
