@@ -4,7 +4,14 @@ import Amalgame.Web
 
 public class Page {
     public static HttpResponse GET(WebContext ctx) {
-        let html: string = "<!doctype html><html><head><title>Mosaic v0.2</title>" +
+        // Livereload snippet (opt-in for `mosaic dev`). The daemon
+        // listens on :35729 (overridable via --livereload-port).
+        // Drop this for prod builds.
+        // Braceless ternary so amc's string interpolation
+        // (`{ ... }`) doesn't try to evaluate the JS.
+        let livereload: string = "<script>const w=new WebSocket('ws://localhost:35729/');" +
+            "w.onmessage=e=>e.data==='reload'?location.reload():null;</script>"
+        let html: string = "<!doctype html><html><head><title>Mosaic v0.3</title>" +
             "<style>body{font-family:system-ui,sans-serif;max-width:42em;margin:3em auto;color:#222}" +
             "code{background:#f4f4f4;padding:2px 6px;border-radius:3px}" +
             "</style></head><body>" +
@@ -16,7 +23,10 @@ public class Page {
             "<li><code>/about</code> — static</li>" +
             "<li><code>/users/:id</code> — dynamic param</li>" +
             "<li><code>/api/info</code> — JSON, multi-verb</li>" +
-            "</ul></body></html>"
+            "</ul>" +
+            "<p>Edit me and watch the page reload automatically (mosaic dev v0.3+).</p>" +
+            livereload +
+            "</body></html>"
         return HttpResponse.New().Html(html)
     }
 }

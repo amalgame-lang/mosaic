@@ -1,0 +1,179 @@
+// mosaic livereload daemon
+//
+// Tiny daemon that accepts WebSocket connections from browsers and
+// broadcasts a "reload" message to all of them when mosaic dev
+// finishes a rebuild. The trigger is stdin: writing "reload\n" to
+// our stdin pushes the broadcast.
+//
+// The poll-based event loop lives in an `@c { }` block — handling
+// concurrent stdin + listening socket + N WS conns in pure AM is
+// possible but the @c form is shorter and easier to follow.
+//
+// Usage (driven by mosaic-dev.sh):
+//   echo "reload" | mosaic-livereload --port 35729   # one-shot
+//   coproc D { mosaic-livereload --port 35729; }     # piped, multi-shot
+//
+// User-side: add this to your HTML, ideally before </body>:
+//   <script>
+//     const ws = new WebSocket('ws://localhost:35729/');
+//     ws.onmessage = e => { if (e.data === 'reload') location.reload(); };
+//   </script>
+
+namespace Mosaic.Livereload
+
+import Amalgame.Net.Http
+
+@c {
+    #include <fcntl.h>
+    #include <poll.h>
+    #include <signal.h>
+    #include <unistd.h>
+
+    #define MOSAIC_LR_MAX_CONNS 64
+
+    static int mosaic_lr_run(i64 port) {
+        signal(SIGPIPE, SIG_IGN);
+        AmalgameWsServer* srv = Amalgame_Net_Http_WsServer_Listen(port);
+        if (!srv || !srv->listening) {
+            fprintf(stderr,
+                "mosaic-livereload: failed to bind :%lld (%s)\n",
+                (long long)port, strerror(errno));
+            return -2;
+        }
+        fprintf(stdout,
+            "mosaic-livereload: WS listening on :%lld\n",
+            (long long)port);
+        fflush(stdout);
+
+        /* Non-blocking stdin so poll(2) treats it like any other fd. */
+        int flags = fcntl(0, F_GETFL, 0);
+        if (flags >= 0) fcntl(0, F_SETFL, flags | O_NONBLOCK);
+
+        AmalgameWsConn* conns[MOSAIC_LR_MAX_CONNS] = {0};
+        int n_conns = 0;
+
+        char stdin_buf[512];
+        int  stdin_len = 0;
+
+        for (;;) {
+            struct pollfd pfds[2 + MOSAIC_LR_MAX_CONNS];
+            pfds[0].fd     = 0;        pfds[0].events = POLLIN; /* stdin */
+            pfds[1].fd     = srv->fd;  pfds[1].events = POLLIN; /* accept */
+            for (int i = 0; i < n_conns; i++) {
+                pfds[2 + i].fd = conns[i]->fd;
+                pfds[2 + i].events = POLLIN;  /* surface peer close */
+            }
+            int nfds = 2 + n_conns;
+            int rv = poll(pfds, nfds, 30000);  /* 30 s idle wake */
+            if (rv < 0) {
+                if (errno == EINTR) continue;
+                break;
+            }
+
+            /* ── stdin → broadcast on 'reload\n' ── */
+            if ((pfds[0].revents & POLLIN) && stdin_len < (int)sizeof(stdin_buf) - 1) {
+                ssize_t r = read(0, stdin_buf + stdin_len,
+                                  sizeof(stdin_buf) - 1 - stdin_len);
+                if (r > 0) {
+                    stdin_len += (int)r;
+                    stdin_buf[stdin_len] = 0;
+                    char* nl;
+                    while ((nl = strchr(stdin_buf, '\n')) != NULL) {
+                        *nl = 0;
+                        /* trigger word is just "reload" — anything else ignored */
+                        if (strstr(stdin_buf, "reload") != NULL) {
+                            fprintf(stdout, "mosaic-livereload: broadcasting reload → %d client(s)\n", n_conns);
+                            fflush(stdout);
+                            for (int i = 0; i < n_conns; i++) {
+                                Amalgame_Net_Http_WsConn_SendText(conns[i], "reload");
+                            }
+                        }
+                        /* shift remainder */
+                        int rest = stdin_len - (int)(nl - stdin_buf + 1);
+                        memmove(stdin_buf, nl + 1, rest);
+                        stdin_len = rest;
+                        stdin_buf[stdin_len] = 0;
+                    }
+                } else if (r == 0) {
+                    /* stdin closed → graceful shutdown */
+                    fprintf(stdout, "mosaic-livereload: stdin closed, shutting down\n");
+                    fflush(stdout);
+                    break;
+                }
+            }
+            if (pfds[0].revents & (POLLHUP | POLLERR)) {
+                fprintf(stdout, "mosaic-livereload: stdin hung up, shutting down\n");
+                fflush(stdout);
+                break;
+            }
+
+            /* ── new WS connection ── */
+            if ((pfds[1].revents & POLLIN) && n_conns < MOSAIC_LR_MAX_CONNS) {
+                AmalgameWsConn* c = Amalgame_Net_Http_WsServer_Accept(srv);
+                if (c) {
+                    conns[n_conns++] = c;
+                    fprintf(stdout, "mosaic-livereload: client connected (%d total)\n", n_conns);
+                    fflush(stdout);
+                }
+            }
+
+            /* ── prune disconnected conns (read end → 0) ── */
+            for (int i = n_conns - 1; i >= 0; i--) {
+                short re = pfds[2 + i].revents;
+                if (re & (POLLHUP | POLLERR | POLLNVAL)) {
+                    Amalgame_Net_Http_WsConn_Close(conns[i]);
+                    for (int j = i; j < n_conns - 1; j++) conns[j] = conns[j+1];
+                    n_conns--;
+                    fprintf(stdout, "mosaic-livereload: client gone (%d remain)\n", n_conns);
+                    fflush(stdout);
+                } else if (re & POLLIN) {
+                    /* Peer sent us something — could be a close frame.
+                     * Easiest: try ReceiveText; if it returns "" the
+                     * conn closed itself and IsClosed becomes true. */
+                    code_string msg = Amalgame_Net_Http_WsConn_ReceiveText(conns[i]);
+                    (void)msg;
+                    if (Amalgame_Net_Http_WsConn_IsClosed(conns[i])) {
+                        for (int j = i; j < n_conns - 1; j++) conns[j] = conns[j+1];
+                        n_conns--;
+                    }
+                }
+            }
+        }
+
+        /* Cleanup. */
+        for (int i = 0; i < n_conns; i++) Amalgame_Net_Http_WsConn_Close(conns[i]);
+        Amalgame_Net_Http_WsServer_Close(srv);
+        return 0;
+    }
+}
+
+public class Daemon {
+    public static int Run(int port) {
+        @c { return (i64) mosaic_lr_run(port); }
+        return -1
+    }
+}
+
+public class Program {
+    public static void Main(string[] args) {
+        var port: int = 35729
+        // accept `--port N` or a bare positional port number. Use
+        // amc's bundled Args_Count / Args_Get helpers (the `args`
+        // formal is just a recognised name; the actual argv lives
+        // in those globals).
+        let argc: int = Args_Count()
+        var i: int = 1   // skip argv[0] = program name
+        while (i < argc) {
+            let a: string = Args_Get(i)
+            if (a == "--port" && i + 1 < argc) {
+                port = String_ToInt(Args_Get(i + 1))
+                i = i + 2
+            } else {
+                let n: int = String_ToInt(a)
+                if (n > 0) { port = n }
+                i = i + 1
+            }
+        }
+        Daemon.Run(port)
+    }
+}
