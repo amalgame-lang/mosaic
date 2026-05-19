@@ -11,8 +11,10 @@ and run from any project to:
 - Scan an `app/` directory and generate a `_routes.am` glue module
   (Next.js App Router style)
 - Drive `amc` + `gcc` end-to-end with the right package archives
-- *(planned v0.2+)* watch files in DEV mode and hot-reload via
-  `dlopen` of a freshly-built `app.so`
+- **DEV mode** (v0.2+) — `mosaic dev` watches your source tree
+  and rebuilds + restarts the server on every save
+- *(planned v0.3+)* hot-reload via `dlopen` of a freshly-built
+  `app.so` so in-flight WebSocket connections survive
 - *(planned v0.3+)* scaffold new Mosaic apps with `mosaic new`
 
 `amalgame-web` is the **runtime library** (Router / Session /
@@ -38,7 +40,7 @@ similar). Make sure `$MOSAIC_PREFIX/bin` is on your `$PATH`.
 ```bash
 # 1. set up package deps
 amc package add web@v0.2.1
-amc package add net-http@v0.2.0
+amc package add net-http@v0.2.1
 
 # 2. drop route files in app/
 mkdir -p app/users app/api
@@ -59,13 +61,28 @@ public class Page {
 }
 AM
 
-# 3. write server.am (the entry, drives the Router + http server)
-# see examples/mosaic-fs-demo/server.am for a 50-line template
+# 3. write server.am — see examples/mosaic-fs-demo/server.am
 
-# 4. build and run
-mosaic-build.sh
+# 4. DEV mode — watches app/ + server.am, rebuilds + restarts on every save
+mosaic dev
+
+# or for a one-shot build:
+mosaic build
 ./server
 ```
+
+## Commands
+
+- **`mosaic dev`** — DEV mode. Builds, runs `./server`, then polls
+  the source tree every 500 ms (no inotify-tools dependency). On
+  every save the server is killed, the project rebuilt, and a
+  fresh server brought up. Ctrl-C to stop cleanly.
+- **`mosaic build`** — one-shot end-to-end build: regen routes,
+  amc → C, gcc → binary. Picks up package archives via
+  `amalgame.lock`.
+- **`mosaic routes [DIR]`** — just regen `_routes.am` from the
+  given app dir (default `./app`). Mostly useful for debugging
+  the generator.
 
 `mosaic-build.sh` reads `amalgame.lock`, finds the cached package
 archives, precompiles any missing facades, and links the final
