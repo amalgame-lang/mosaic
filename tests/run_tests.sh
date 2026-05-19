@@ -106,16 +106,19 @@ PID=$!
 sleep 0.5
 trap "kill $PID 2>/dev/null || true; wait $PID 2>/dev/null || true; mv -f server.am.orig server.am 2>/dev/null || true" EXIT
 
-echo "── Routes (curl --http2-prior-knowledge) ──"
+echo "── Routes (HTTP/1.1) ──"
 H=":$PORT"
 
-check "/ → 200"            "$(curl -s --http2-prior-knowledge http://localhost$H/         -o /dev/null -w '%{http_version} %{http_code}')" "2 200"
-check "/about → 200"       "$(curl -s --http2-prior-knowledge http://localhost$H/about    -o /dev/null -w '%{http_version} %{http_code}')" "2 200"
-check "/users/42 → 200"    "$(curl -s --http2-prior-knowledge http://localhost$H/users/42 -o /dev/null -w '%{http_version} %{http_code}')" "2 200"
-check "/users/:id body"    "$(curl -s --http2-prior-knowledge http://localhost$H/users/42 | tr -d '\n')" "User #42"
-check "/api/info → 200"    "$(curl -s --http2-prior-knowledge http://localhost$H/api/info -o /dev/null -w '%{http_version} %{http_code}')" "2 200"
-check "POST /api/info 201" "$(curl -s --http2-prior-knowledge -X POST http://localhost$H/api/info -o /dev/null -w '%{http_version} %{http_code}')" "2 201"
-check "/nope → 404"        "$(curl -s --http2-prior-knowledge http://localhost$H/nope     -o /dev/null -w '%{http_version} %{http_code}')" "2 404"
+# The demo now defaults to Http1.Serve (browser-friendly). Curl
+# without --http2-prior-knowledge will speak plain HTTP/1.1, and
+# %{http_version} comes back as "1.1".
+check "/ → 200"            "$(curl -s http://localhost$H/         -o /dev/null -w '%{http_version} %{http_code}')" "1.1 200"
+check "/about → 200"       "$(curl -s http://localhost$H/about    -o /dev/null -w '%{http_version} %{http_code}')" "1.1 200"
+check "/users/42 → 200"    "$(curl -s http://localhost$H/users/42 -o /dev/null -w '%{http_version} %{http_code}')" "1.1 200"
+check "/users/:id body"    "$(curl -s http://localhost$H/users/42 | tr -d '\n')" "User #42"
+check "/api/info → 200"    "$(curl -s http://localhost$H/api/info -o /dev/null -w '%{http_version} %{http_code}')" "1.1 200"
+check "POST /api/info 201" "$(curl -s -X POST http://localhost$H/api/info -o /dev/null -w '%{http_version} %{http_code}')" "1.1 201"
+check "/nope → 404"        "$(curl -s http://localhost$H/nope     -o /dev/null -w '%{http_version} %{http_code}')" "1.1 404"
 
 echo ""
 echo "  $PASS passed, $FAIL failed"
