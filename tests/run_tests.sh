@@ -91,7 +91,9 @@ echo "── Build pipeline ──"
 PORT=13099
 cp server.am server.am.orig
 trap 'mv -f server.am.orig server.am 2>/dev/null || true' EXIT
-sed -i "s/Http2\.Serve([0-9]*/Http2.Serve($PORT/" server.am
+# Match either Http1.Serve or Http2.Serve — the demo defaults to
+# Http1 since mosaic v0.1.3 but we keep the test resilient to swaps.
+sed -i -E "s/(Http[12]\.Serve)\([0-9]+/\1($PORT/" server.am
 
 "$PKG_DIR/tools/mosaic-build.sh" > /tmp/mosaic-build.log 2>&1
 if [ ! -x ./server ]; then
