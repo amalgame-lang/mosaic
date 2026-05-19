@@ -81,6 +81,18 @@ EOF
 
 cd "$DEMO_DIR"
 echo "── Build pipeline ──"
+
+# Boot server on a unique port to avoid collisions with anything
+# on :3000 (the demo's natural port). Patch server.am in a copy +
+# restore so the user's source tree never gets mutated. Earlier
+# versions of this script `sed -i`'d the demo source in place and
+# left a 13099-port leak in the released v0.1.0 tag — fixed in
+# v0.1.2.
+PORT=13099
+cp server.am server.am.orig
+trap 'mv -f server.am.orig server.am 2>/dev/null || true' EXIT
+sed -i "s/Http2\.Serve([0-9]*/Http2.Serve($PORT/" server.am
+
 "$PKG_DIR/tools/mosaic-build.sh" > /tmp/mosaic-build.log 2>&1
 if [ ! -x ./server ]; then
     echo -e "  ${RED}FAIL${NC} (build) — last 20 lines of log:"
@@ -89,14 +101,10 @@ if [ ! -x ./server ]; then
 fi
 echo -e "  ${GREEN}PASS${NC} (./server built)"
 
-# Boot server on a unique port.
-PORT=13099
-sed -i "s/Http2\.Serve([0-9]*/Http2.Serve($PORT/" server.am 2>/dev/null || true
-"$PKG_DIR/tools/mosaic-build.sh" > /dev/null 2>&1
 ./server > /tmp/mosaic-server.log 2>&1 &
 PID=$!
 sleep 0.5
-trap "kill $PID 2>/dev/null || true; wait $PID 2>/dev/null || true" EXIT
+trap "kill $PID 2>/dev/null || true; wait $PID 2>/dev/null || true; mv -f server.am.orig server.am 2>/dev/null || true" EXIT
 
 echo "── Routes (curl --http2-prior-knowledge) ──"
 H=":$PORT"
