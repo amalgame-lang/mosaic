@@ -176,8 +176,20 @@ if [ -f amalgame.lock ]; then
 fi
 
 # ── Step 4: gcc link ─────────────────────────────────────────────
+# `-Wno-int-conversion` + `-Wno-incompatible-pointer-types` silence
+# the closure result/arg "pointer from integer" noise: amc's cgen
+# erases Closure arg/return types to i64 (intptr_t boxing inside
+# AmalgameClosure_callN), so passing `conn` (an AmalgameH1Conn*)
+# into a closure body produces a warning at every call site.
+# Runtime-safe on x86_64 (sizeof(void*)==sizeof(i64)) — the values
+# survive intact through the box/unbox.
+#
+# Proper fix: typed closures (`Closure<A, R>`) on the amc roadmap.
+# Once that lands, drop these flags here.
 
-GCC_CMD=(gcc -O2 -I"$AMC_RUNTIME" "$NAME.c"
+GCC_CMD=(gcc -O2 -I"$AMC_RUNTIME"
+         -Wno-int-conversion -Wno-incompatible-pointer-types
+         "$NAME.c"
          "${PKG_ARCHIVES[@]}" "$LIBAMALGAME"
          -lgc -lm -lz "${SYS_LIBS[@]}"
          -o "$OUT")
