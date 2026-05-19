@@ -176,22 +176,33 @@ if [ -f amalgame.lock ]; then
 fi
 
 # ── Step 4: gcc link ─────────────────────────────────────────────
-# `-Wno-int-conversion` + `-Wno-incompatible-pointer-types` silence
-# the closure result/arg "pointer from integer" noise. With amc
-# v0.8.35+ typed closures (`Closure<A, R>`) the cgen emits proper
-# pointer casts on typed `Closure<…>` fields/locals — the warnings
-# only remain at sites that still pass bare `Closure`-typed
-# handlers (un-migrated packages) or that pass an inline lambda
-# directly to a typed-Closure method/ctor without binding to a
-# typed local first (lambda-param inference from method param
-# types is a pending amc enhancement; bind to `let h: Closure<…, R>`
-# or type the lambda param explicitly as a workaround).
+# `-Wno-int-conversion` + `-Wno-incompatible-pointer-types` are
+# DOWN to a transitional safety net since the v0.8.35+/web v0.3.0
+# typed-Closure sweep.
 #
-# Drop these flags once amalgame-web v0.3+ and amalgame-net-http
-# v0.5+ ship typed-Closure handler signatures and all relevant
-# call sites in user code follow one of the two patterns above.
-# See docs/guide/02-language-tour.md "Typed closures (v0.8.35+)"
-# for the migration story.
+# What the sweep fixed (no warnings any more):
+#   - amalgame-web v0.3.0   `Route.Handler: Closure<WebContext, HttpResponse>`
+#                           → `route.Handler(ctx)` lowers as a typed cast.
+#   - amc v0.8.35           typed `Closure<A, R>` annotation lowers
+#                           lambda body's `__arg0` as a typed cast.
+#   - amc v0.8.36 (Tier A)  inline lambda passed to a typed-Closure
+#                           ctor/method param has its first PARAM
+#                           inferred from the target signature, no
+#                           more explicit `(c: WebContext) =>`.
+#
+# What still warns (and why these flags stay for now):
+#   - Calls into header-only runtime classes like `H1Conn`,
+#     `AmalgameTcpServer`, etc., where the short class name in the
+#     manifest's `[stdlib].classes` array maps to a C typedef
+#     (`AmalgameH1Conn*`) that amc's TypeToC can't recover today.
+#     `Http1.Serve(int, Closure<…>)` lives in net-http's runtime
+#     header, not its AM facade, so it doesn't get typed-Closure
+#     param inference. Two ways to clear it later: (a) add a
+#     `[stdlib].typedefs` manifest mapping short → AmalgameXxx,
+#     or (b) extend the facade with thin AM-side wrappers that
+#     pin the H1Conn handler shape.
+#
+# Drop these flags once the header-only-types gap is closed.
 
 GCC_CMD=(gcc -O2 -I"$AMC_RUNTIME"
          -Wno-int-conversion -Wno-incompatible-pointer-types
