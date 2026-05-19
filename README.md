@@ -13,9 +13,12 @@ and run from any project to:
 - Drive `amc` + `gcc` end-to-end with the right package archives
 - **DEV mode** (v0.2+) — `mosaic dev` watches your source tree
   and rebuilds + restarts the server on every save
-- *(planned v0.3+)* hot-reload via `dlopen` of a freshly-built
+- **Livereload** (v0.3+) — `mosaic dev` also runs a tiny WebSocket
+  daemon on `:35729`. Add one line to your HTML and the browser
+  auto-refreshes after every rebuild (see Livereload section below)
+- *(planned v0.4+)* hot-reload via `dlopen` of a freshly-built
   `app.so` so in-flight WebSocket connections survive
-- *(planned v0.3+)* scaffold new Mosaic apps with `mosaic new`
+- *(planned v0.4+)* scaffold new Mosaic apps with `mosaic new`
 
 `amalgame-web` is the **runtime library** (Router / Session /
 WebContext). Mosaic is the **build tool**. Different lifecycle,
@@ -71,12 +74,40 @@ mosaic build
 ./server
 ```
 
+## Livereload
+
+`mosaic dev` keeps a small WebSocket daemon running on `:35729`
+that broadcasts `reload` to all connected browsers after every
+successful rebuild. Opt in from any HTML response with one line:
+
+```html
+<script>
+  // Braceless ternary keeps amc's string interpolation (`{ ... }`)
+  // from trying to parse the JS when this snippet is embedded in
+  // an AM string literal.
+  const w = new WebSocket('ws://localhost:35729/');
+  w.onmessage = e => e.data === 'reload' ? location.reload() : null;
+</script>
+```
+
+Save a file under `app/` → terminal shows `change detected →
+rebuilding → build OK`, browser refreshes within a couple of
+hundred milliseconds. Strip the `<script>` before deploying.
+
+The daemon's source is `tools/livereload-daemon.am` — a single
+file that uses `amalgame-net-http v0.4`'s `Ws.Serve` plus an
+`@c { }` block to multiplex stdin + listening socket via `poll(2)`.
+`mosaic dev` compiles it once and caches the binary under
+`~/.cache/mosaic/livereload-daemon`.
+
 ## Commands
 
 - **`mosaic dev`** — DEV mode. Builds, runs `./server`, then polls
   the source tree every 500 ms (no inotify-tools dependency). On
   every save the server is killed, the project rebuilt, and a
-  fresh server brought up. Ctrl-C to stop cleanly.
+  fresh server brought up. **Also runs the livereload WebSocket
+  daemon on :35729** by default; pass `--no-livereload` or
+  `--livereload-port N` to tweak. Ctrl-C to stop cleanly.
 - **`mosaic build`** — one-shot end-to-end build: regen routes,
   amc → C, gcc → binary. Picks up package archives via
   `amalgame.lock`.
