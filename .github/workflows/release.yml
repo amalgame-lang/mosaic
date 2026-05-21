@@ -138,6 +138,7 @@ jobs:
           update: true
           install: >-
             mingw-w64-x86_64-gcc
+            zip
 
       - name: Determine version
         id: ver
