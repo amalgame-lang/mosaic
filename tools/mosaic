@@ -58,7 +58,7 @@ case "${1:-help}" in
     routes)         shift; exec "$SCRIPT_DIR/mosaic-routes.sh" "$@" ;;
     supervise)      shift; exec "$SCRIPT_DIR/mosaic-supervise" "$@" ;;
     version|-v|--version)
-        echo "mosaic v0.5.0"
+        echo "mosaic v0.5.1"
         ;;
     help|-h|--help)
         usage
