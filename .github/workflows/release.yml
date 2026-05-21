@@ -151,18 +151,18 @@ jobs:
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "ver=${TAG#v}" >> $GITHUB_OUTPUT
 
-      - name: Build mosaic-supervise.exe
-        run: |
-          gcc -O2 -Wall tools/mosaic-supervise.c -o tools/mosaic-supervise.exe
-          ls -la tools/mosaic-supervise.exe
+      # mosaic-supervise.c uses POSIX fork() + waitpid() + sys/wait.h
+      # — none of which exist on Windows.  The supervisor would need
+      # a CreateProcess-based rewrite to run natively; for now the
+      # Windows release ships ONLY the bash scripts.  Users who want
+      # `mosaic supervise` on Windows run via WSL2 + the Linux tarball,
+      # same as nginx / haproxy / postfix.
 
       - name: Stage release artifacts
         run: |
           VER="${{ steps.ver.outputs.ver }}"
           STAGE="dist/mosaic-${VER}-windows-x86_64"
           mkdir -p "$STAGE/bin" "$STAGE/share/mosaic"
-          # Native binary — works from cmd / PowerShell / Git Bash / WSL.
-          install -m 755 tools/mosaic-supervise.exe "$STAGE/bin/"
           # Bash scripts — need Git Bash or WSL at runtime.
           for f in tools/mosaic tools/mosaic-routes.sh tools/mosaic-build.sh \
                    tools/mosaic-dev.sh tools/mosaic-new.sh; do
