@@ -31,7 +31,6 @@
 #define AppName      "Mosaic"
 #define AppPublisher "Bastien MOUGET"
 #define AppURL       "https://github.com/amalgame-lang/mosaic"
-#define AppExe       "mosaic-supervise.exe"
 
 [Setup]
 AppId={{B2A1C3D4-5E6F-4A7B-8C9D-0E1F2A3B4C5D}
@@ -42,7 +41,9 @@ AppPublisherURL={#AppURL}
 DefaultDirName={autopf}\Mosaic
 DefaultGroupName={#AppName}
 UninstallDisplayName={#AppName} {#MosaicVersion}
-UninstallDisplayIcon={app}\bin\{#AppExe}
+; No UninstallDisplayIcon — Windows installer doesn't ship a .exe
+; (the bash scripts are the entry points), and pointing the
+; uninstaller icon at a missing file produces a warning.
 Compression=lzma2
 SolidCompression=yes
 OutputBaseFilename=mosaic-{#MosaicVersion}-setup
@@ -61,10 +62,13 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "addtopath"; Description: "Add {app}\bin to PATH"; GroupDescription: "Integration:"
 
 [Files]
-; ── Native binary — works from cmd, PowerShell, Git Bash, WSL ──
-Source: "{#MosaicStageDir}\bin\mosaic-supervise.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
-
 ; ── Bash scripts — need a POSIX shell at runtime ──
+;
+; mosaic-supervise (the hot-reload worker orchestrator) is POSIX-
+; only — its fork()/waitpid()/SIGTERM dance has no native Windows
+; equivalent.  Users who want `mosaic dev --supervise` on Windows
+; run through WSL2 + the Linux tarball (same approach nginx /
+; haproxy / postfix use).
 Source: "{#MosaicStageDir}\bin\mosaic";              DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "{#MosaicStageDir}\bin\mosaic-routes.sh";    DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "{#MosaicStageDir}\bin\mosaic-build.sh";     DestDir: "{app}\bin"; Flags: ignoreversion
@@ -107,8 +111,6 @@ begin
       Windows users coming from `choco install` of a normal CLI. }
     MsgBox(
       'Mosaic CLI installed at ' + ExpandConstant('{app}\bin\') + #13#13 +
-      'mosaic-supervise.exe runs from any cmd / PowerShell.' + #13 +
-      '' + #13 +
       'mosaic, mosaic-build.sh, mosaic-dev.sh, mosaic-new.sh, and' + #13 +
       'mosaic-routes.sh are bash scripts and need a POSIX shell:' + #13 +
       '' + #13 +
@@ -117,6 +119,9 @@ begin
       '' + #13 +
       '  - Or WSL2:' + #13 +
       '      wsl --install -d Ubuntu' + #13 +
+      '' + #13 +
+      'Note: `mosaic dev --supervise` (the hot-reload supervisor) is' + #13 +
+      'POSIX-only. For that mode, run via WSL2 with the Linux tarball.' + #13 +
       '' + #13 +
       'Open Git Bash (or WSL) and run `mosaic version` to verify.',
       mbInformation, MB_OK);
