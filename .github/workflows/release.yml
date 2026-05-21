@@ -1,0 +1,188 @@
+name: Release
+
+# Builds the Mosaic CLI artifact (bash scripts + compiled
+# `mosaic-supervise`) for each supported platform and publishes
+# them as GitHub Release assets.  Same shape as amc's release.yml
+# — `install.sh` downloads the pre-built tarball that matches the
+# host triple instead of compiling from source.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  # Manual trigger for testing the workflow without cutting a real release
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.5.0)'
+        required: true
+        default: 'v0.0.0-test'
+
+jobs:
+  # ────────────────────────────────────────────────────────────
+  # Each platform stages the same layout under dist/mosaic/:
+  #     bin/         — mosaic dispatcher + shell scripts + mosaic-supervise
+  #     share/mosaic — livereload-daemon.am + .toml, docs/
+  # then tars it up as mosaic-<ver>-<triple>.tar.gz.
+  # The final job downloads all three artifacts and creates the
+  # GitHub Release.
+  # ────────────────────────────────────────────────────────────
+
+  build-linux:
+    name: Build (Linux x86_64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "ver=${TAG#v}" >> $GITHUB_OUTPUT
+
+      - name: Build mosaic-supervise
+        run: |
+          gcc -O2 -Wall tools/mosaic-supervise.c -o tools/mosaic-supervise
+          file tools/mosaic-supervise
+
+      - name: Stage release artifacts
+        run: |
+          VER="${{ steps.ver.outputs.ver }}"
+          STAGE="dist/mosaic-${VER}-linux-x86_64"
+          mkdir -p "$STAGE/bin" "$STAGE/share/mosaic"
+          install -m 755 tools/mosaic                tools/mosaic-routes.sh \
+                         tools/mosaic-build.sh       tools/mosaic-dev.sh \
+                         tools/mosaic-new.sh         tools/mosaic-supervise \
+                         "$STAGE/bin/"
+          install -m 644 tools/livereload-daemon.am  \
+                         tools/livereload-daemon.toml \
+                         "$STAGE/share/mosaic/"
+          install -m 644 README.md LICENSE           "$STAGE/share/mosaic/"
+          cp -R docs                                 "$STAGE/share/mosaic/docs"
+          ( cd dist && tar -czf "mosaic-${VER}-linux-x86_64.tar.gz" "mosaic-${VER}-linux-x86_64" )
+          ls -la dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux-x86_64
+          path: dist/mosaic-*-linux-x86_64.tar.gz
+          retention-days: 7
+
+  build-macos:
+    name: Build (macOS arm64)
+    runs-on: macos-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "ver=${TAG#v}" >> $GITHUB_OUTPUT
+
+      - name: Build mosaic-supervise
+        run: |
+          cc -O2 -Wall tools/mosaic-supervise.c -o tools/mosaic-supervise
+          file tools/mosaic-supervise
+
+      - name: Stage release artifacts
+        run: |
+          VER="${{ steps.ver.outputs.ver }}"
+          STAGE="dist/mosaic-${VER}-macos-arm64"
+          mkdir -p "$STAGE/bin" "$STAGE/share/mosaic"
+          # macOS BSD install(1) takes one source at a time when -m is set;
+          # loop to stay portable instead of relying on GNU coreutils.
+          for f in tools/mosaic tools/mosaic-routes.sh tools/mosaic-build.sh \
+                   tools/mosaic-dev.sh tools/mosaic-new.sh tools/mosaic-supervise; do
+              install -m 755 "$f" "$STAGE/bin/"
+          done
+          for f in tools/livereload-daemon.am tools/livereload-daemon.toml \
+                   README.md LICENSE; do
+              install -m 644 "$f" "$STAGE/share/mosaic/"
+          done
+          cp -R docs "$STAGE/share/mosaic/docs"
+          ( cd dist && tar -czf "mosaic-${VER}-macos-arm64.tar.gz" "mosaic-${VER}-macos-arm64" )
+          ls -la dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos-arm64
+          path: dist/mosaic-*-macos-arm64.tar.gz
+          retention-days: 7
+
+  # Windows build deliberately skipped:
+  # - mosaic-{routes,build,dev,new}.sh are bash scripts that rely on
+  #   POSIX `find -newer`, `mkfifo`, `kill -TERM`.  Native Windows
+  #   has none of these.
+  # - The realistic Windows story is "install WSL2, then run the
+  #   Linux build of mosaic".  Same as `make`, `gcc`, etc.  Not
+  #   worth a Cygwin/MSYS2 maintenance burden.
+  # The Linux tarball works fine under WSL2 — that's the documented
+  # path.
+
+  # ────────────────────────────────────────────────────────────
+  # Publish — collect the per-platform tarballs + checksum file
+  # and create the GitHub Release.
+  # ────────────────────────────────────────────────────────────
+
+  publish:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-linux, build-macos]
+    permissions:
+      contents: write   # required by softprops/action-gh-release
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "ver=${TAG#v}" >> $GITHUB_OUTPUT
+
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-linux-x86_64
+          path: dist/
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-macos-arm64
+          path: dist/
+
+      - name: Generate SHA-256 checksums
+        run: |
+          cd dist
+          sha256sum mosaic-*.tar.gz | tee checksums.sha256
+          ls -la
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: Mosaic ${{ steps.ver.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            dist/mosaic-*-linux-x86_64.tar.gz
+            dist/mosaic-*-macos-arm64.tar.gz
+            dist/checksums.sha256

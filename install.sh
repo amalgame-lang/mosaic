@@ -65,37 +65,90 @@ fi
 [ "${VERSION#v}" = "$VERSION" ] && VERSION="v$VERSION"
 say "Installing mosaic $VERSION → $PREFIX"
 
+# ── Detect host triple ──────────────────────────────────
+UNAME_S="$(uname -s)"
+UNAME_M="$(uname -m)"
+TRIPLE=""
+case "$UNAME_S-$UNAME_M" in
+    Linux-x86_64)        TRIPLE="linux-x86_64" ;;
+    Darwin-arm64)        TRIPLE="macos-arm64"  ;;
+    Darwin-x86_64)       TRIPLE="macos-arm64"  ;; # Rosetta — close enough
+    *)                   TRIPLE="" ;;
+esac
+
 # ── Download archive ─────────────────────────────────────
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-URL="https://github.com/$REPO/archive/refs/tags/$VERSION.tar.gz"
-curl -sSL -o "$TMP/mosaic.tar.gz" "$URL"
-tar -xzf "$TMP/mosaic.tar.gz" -C "$TMP"
-SRC="$(find "$TMP" -maxdepth 1 -type d -name 'mosaic-*' | head -1)"
+
+# Strategy:
+#   1. Try the pre-built per-platform tarball published by
+#      .github/workflows/release.yml (fast path, no gcc needed).
+#   2. Fall back to the source tarball + locally compile
+#      mosaic-supervise — keeps `MOSAIC_VERSION=<old-tag>` working
+#      for tags that pre-date the release workflow.
+
+VER_NO_V="${VERSION#v}"
+PREBUILT_URL=""
+if [ -n "$TRIPLE" ]; then
+    PREBUILT_URL="https://github.com/$REPO/releases/download/$VERSION/mosaic-${VER_NO_V}-${TRIPLE}.tar.gz"
+fi
+
+USE_PREBUILT=0
+if [ -n "$PREBUILT_URL" ]; then
+    say "Trying pre-built tarball for $TRIPLE..."
+    if curl -fsSL -o "$TMP/mosaic.tar.gz" "$PREBUILT_URL" 2>/dev/null; then
+        USE_PREBUILT=1
+        tar -xzf "$TMP/mosaic.tar.gz" -C "$TMP"
+        SRC="$(find "$TMP" -maxdepth 1 -type d -name "mosaic-${VER_NO_V}-${TRIPLE}" | head -1)"
+        ok "pre-built tarball downloaded"
+    else
+        warn "no pre-built tarball for $VERSION/$TRIPLE — falling back to source build"
+    fi
+fi
+
+if [ "$USE_PREBUILT" -eq 0 ]; then
+    say "Downloading source tarball..."
+    URL="https://github.com/$REPO/archive/refs/tags/$VERSION.tar.gz"
+    curl -sSL -o "$TMP/mosaic.tar.gz" "$URL"
+    tar -xzf "$TMP/mosaic.tar.gz" -C "$TMP"
+    SRC="$(find "$TMP" -maxdepth 1 -type d -name 'mosaic-*' | head -1)"
+fi
 
 # ── Install scripts ──────────────────────────────────────
 # The `mosaic` dispatcher routes subcommands to the *-sh scripts
-# (which it locates via $SCRIPT_DIR relative to itself). Install
-# all four into the same bin dir so they stay siblings.
+# (which it locates via $SCRIPT_DIR relative to itself).  The
+# layout differs between the two paths:
+#   pre-built tarball: $SRC/bin/* + $SRC/share/mosaic/*
+#   source tarball:    $SRC/tools/*  (compiled on the fly)
 mkdir -p "$BIN_DIR"
-for s in mosaic mosaic-routes.sh mosaic-build.sh mosaic-dev.sh mosaic-new.sh; do
-    install -m 755 "$SRC/tools/$s" "$BIN_DIR/$s"
-    ok "$s → $BIN_DIR/"
-done
 
-# v0.5+: mosaic-supervise is a tiny C program (hot-reload worker
-# orchestrator).  Compile on install rather than shipping pre-
-# built binaries per platform — keeps the release-asset story
-# simple, and a C compiler is a hard dep of mosaic anyway (every
-# user's project goes through gcc for the final link step).
-if [ -f "$SRC/tools/mosaic-supervise.c" ]; then
-    CC="${CC:-cc}"
-    if command -v "$CC" >/dev/null 2>&1; then
-        "$CC" -O2 -Wall "$SRC/tools/mosaic-supervise.c" -o "$BIN_DIR/mosaic-supervise"
-        chmod 755 "$BIN_DIR/mosaic-supervise"
-        ok "mosaic-supervise (compiled with $CC) → $BIN_DIR/"
-    else
-        say "skipping mosaic-supervise — no C compiler on PATH (\`mosaic supervise\` will be unavailable)"
+if [ "$USE_PREBUILT" -eq 1 ]; then
+    # Pre-built layout — straight copy.
+    for s in mosaic mosaic-routes.sh mosaic-build.sh mosaic-dev.sh \
+             mosaic-new.sh mosaic-supervise; do
+        if [ -f "$SRC/bin/$s" ]; then
+            install -m 755 "$SRC/bin/$s" "$BIN_DIR/$s"
+            ok "$s → $BIN_DIR/"
+        fi
+    done
+else
+    # Source layout — copy shell scripts, compile the supervisor.
+    for s in mosaic mosaic-routes.sh mosaic-build.sh mosaic-dev.sh mosaic-new.sh; do
+        install -m 755 "$SRC/tools/$s" "$BIN_DIR/$s"
+        ok "$s → $BIN_DIR/"
+    done
+    # v0.5+: mosaic-supervise is a tiny C program.  Compile on install
+    # — a C compiler is a hard dep of mosaic anyway (every user's
+    # project goes through gcc for the final link step).
+    if [ -f "$SRC/tools/mosaic-supervise.c" ]; then
+        CC="${CC:-cc}"
+        if command -v "$CC" >/dev/null 2>&1; then
+            "$CC" -O2 -Wall "$SRC/tools/mosaic-supervise.c" -o "$BIN_DIR/mosaic-supervise"
+            chmod 755 "$BIN_DIR/mosaic-supervise"
+            ok "mosaic-supervise (compiled with $CC) → $BIN_DIR/"
+        else
+            warn "skipping mosaic-supervise — no C compiler on PATH (\`mosaic supervise\` will be unavailable)"
+        fi
     fi
 fi
 
@@ -105,11 +158,15 @@ fi
 # resolvable via SCRIPT_DIR/../share/mosaic from the bin scripts.
 SHARE_DIR="$PREFIX/share/mosaic"
 mkdir -p "$SHARE_DIR"
+# Both layouts ship these in different roots; check each.
 for s in livereload-daemon.am livereload-daemon.toml; do
-    if [ -f "$SRC/tools/$s" ]; then
-        install -m 644 "$SRC/tools/$s" "$SHARE_DIR/$s"
-        ok "$s → $SHARE_DIR/"
-    fi
+    for cand in "$SRC/share/mosaic/$s" "$SRC/tools/$s"; do
+        if [ -f "$cand" ]; then
+            install -m 644 "$cand" "$SHARE_DIR/$s"
+            ok "$s → $SHARE_DIR/"
+            break
+        fi
+    done
 done
 
 # ── PATH hint ────────────────────────────────────────────
