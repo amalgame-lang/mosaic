@@ -28,6 +28,7 @@ Commands:
                         restart on every change. Ctrl-C to stop.
   mosaic routes [DIR]   Just regenerate _routes.am from the given app
                         dir (defaults to ./app).
+  mosaic new [DIR]      Scaffold a new Mosaic application skeleton.
   mosaic version        Show installed version.
   mosaic help           This message.
 
@@ -39,6 +40,7 @@ Common flags (build / dev):
 Examples:
   mosaic dev                          # watch + reload, listens on :3000
   mosaic build -o ./dist/server       # one-shot prod build
+  mosaic new my-site                  # scaffold a fresh project
   mosaic routes my-app                # only regen routes, don't compile
 
 See https://github.com/amalgame-lang/mosaic
@@ -46,11 +48,12 @@ EOF
 }
 
 case "${1:-help}" in
+    new)            shift; exec "$SCRIPT_DIR/mosaic-new.sh"    "$@" ;;
     build)          shift; exec "$SCRIPT_DIR/mosaic-build.sh"  "$@" ;;
     dev)            shift; exec "$SCRIPT_DIR/mosaic-dev.sh"    "$@" ;;
     routes)         shift; exec "$SCRIPT_DIR/mosaic-routes.sh" "$@" ;;
     version|-v|--version)
-        echo "mosaic v0.2.0"
+        echo "mosaic v0.4.0"
         ;;
     help|-h|--help)
         usage
