@@ -66,6 +66,13 @@ fi
 say "Installing mosaic $VERSION → $PREFIX"
 
 # ── Detect host triple ──────────────────────────────────
+# install.sh runs under bash → on Windows that means Git Bash,
+# WSL, MSYS2, or Cygwin.  WSL reports Linux (so it picks the
+# Linux tarball, which is correct).  Git Bash / MSYS2 / Cygwin
+# report MINGW64/MSYS/CYGWIN as $UNAME_S — those want the
+# Windows zip.  Native cmd / PowerShell users should download
+# the .exe installer from the GitHub Releases page instead of
+# running install.sh.
 UNAME_S="$(uname -s)"
 UNAME_M="$(uname -m)"
 TRIPLE=""
@@ -73,6 +80,8 @@ case "$UNAME_S-$UNAME_M" in
     Linux-x86_64)        TRIPLE="linux-x86_64" ;;
     Darwin-arm64)        TRIPLE="macos-arm64"  ;;
     Darwin-x86_64)       TRIPLE="macos-arm64"  ;; # Rosetta — close enough
+    MINGW64*-x86_64|MSYS*-x86_64|CYGWIN*-x86_64)
+                         TRIPLE="windows-x86_64" ;;
     *)                   TRIPLE="" ;;
 esac
 
@@ -89,16 +98,26 @@ trap 'rm -rf "$TMP"' EXIT
 
 VER_NO_V="${VERSION#v}"
 PREBUILT_URL=""
+PREBUILT_EXT=""
 if [ -n "$TRIPLE" ]; then
-    PREBUILT_URL="https://github.com/$REPO/releases/download/$VERSION/mosaic-${VER_NO_V}-${TRIPLE}.tar.gz"
+    if [ "$TRIPLE" = "windows-x86_64" ]; then
+        PREBUILT_EXT="zip"
+    else
+        PREBUILT_EXT="tar.gz"
+    fi
+    PREBUILT_URL="https://github.com/$REPO/releases/download/$VERSION/mosaic-${VER_NO_V}-${TRIPLE}.${PREBUILT_EXT}"
 fi
 
 USE_PREBUILT=0
 if [ -n "$PREBUILT_URL" ]; then
     say "Trying pre-built tarball for $TRIPLE..."
-    if curl -fsSL -o "$TMP/mosaic.tar.gz" "$PREBUILT_URL" 2>/dev/null; then
+    if curl -fsSL -o "$TMP/mosaic.${PREBUILT_EXT}" "$PREBUILT_URL" 2>/dev/null; then
         USE_PREBUILT=1
-        tar -xzf "$TMP/mosaic.tar.gz" -C "$TMP"
+        if [ "$PREBUILT_EXT" = "zip" ]; then
+            unzip -q "$TMP/mosaic.zip" -d "$TMP"
+        else
+            tar -xzf "$TMP/mosaic.tar.gz" -C "$TMP"
+        fi
         SRC="$(find "$TMP" -maxdepth 1 -type d -name "mosaic-${VER_NO_V}-${TRIPLE}" | head -1)"
         ok "pre-built tarball downloaded"
     else
@@ -123,9 +142,11 @@ fi
 mkdir -p "$BIN_DIR"
 
 if [ "$USE_PREBUILT" -eq 1 ]; then
-    # Pre-built layout — straight copy.
+    # Pre-built layout — straight copy.  Windows ships
+    # mosaic-supervise.exe instead of mosaic-supervise; pick
+    # whichever filename exists.
     for s in mosaic mosaic-routes.sh mosaic-build.sh mosaic-dev.sh \
-             mosaic-new.sh mosaic-supervise; do
+             mosaic-new.sh mosaic-supervise mosaic-supervise.exe; do
         if [ -f "$SRC/bin/$s" ]; then
             install -m 755 "$SRC/bin/$s" "$BIN_DIR/$s"
             ok "$s → $BIN_DIR/"
