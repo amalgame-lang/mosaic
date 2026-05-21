@@ -122,15 +122,147 @@ jobs:
           path: dist/mosaic-*-macos-arm64.tar.gz
           retention-days: 7
 
-  # Windows build deliberately skipped:
-  # - mosaic-{routes,build,dev,new}.sh are bash scripts that rely on
-  #   POSIX `find -newer`, `mkfifo`, `kill -TERM`.  Native Windows
-  #   has none of these.
-  # - The realistic Windows story is "install WSL2, then run the
-  #   Linux build of mosaic".  Same as `make`, `gcc`, etc.  Not
-  #   worth a Cygwin/MSYS2 maintenance burden.
-  # The Linux tarball works fine under WSL2 — that's the documented
-  # path.
+  build-windows:
+    name: Build (Windows x86_64)
+    runs-on: windows-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+
+      - name: Determine version
+        id: ver
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "ver=${TAG#v}" >> $GITHUB_OUTPUT
+
+      - name: Build mosaic-supervise.exe
+        run: |
+          gcc -O2 -Wall tools/mosaic-supervise.c -o tools/mosaic-supervise.exe
+          ls -la tools/mosaic-supervise.exe
+
+      - name: Stage release artifacts
+        run: |
+          VER="${{ steps.ver.outputs.ver }}"
+          STAGE="dist/mosaic-${VER}-windows-x86_64"
+          mkdir -p "$STAGE/bin" "$STAGE/share/mosaic"
+          # Native binary — works from cmd / PowerShell / Git Bash / WSL.
+          install -m 755 tools/mosaic-supervise.exe "$STAGE/bin/"
+          # Bash scripts — need Git Bash or WSL at runtime.
+          for f in tools/mosaic tools/mosaic-routes.sh tools/mosaic-build.sh \
+                   tools/mosaic-dev.sh tools/mosaic-new.sh; do
+              install -m 755 "$f" "$STAGE/bin/"
+          done
+          for f in tools/livereload-daemon.am tools/livereload-daemon.toml \
+                   README.md LICENSE; do
+              install -m 644 "$f" "$STAGE/share/mosaic/"
+          done
+          cp -R docs "$STAGE/share/mosaic/docs"
+          ( cd dist && zip -qr "mosaic-${VER}-windows-x86_64.zip" "mosaic-${VER}-windows-x86_64" )
+          ls -la dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-x86_64
+          path: dist/mosaic-*-windows-x86_64.zip
+          retention-days: 7
+
+  # Inno Setup .exe installer — runs natively on windows-latest so
+  # the preinstalled ISCC.exe is on PATH.  Drops everything under
+  # %ProgramFiles%\Mosaic\bin and adds it to PATH.  The .iss script
+  # shows a heads-up about the bash-shell requirement at the end.
+  build-windows-installer:
+    name: Build Windows .exe installer
+    runs-on: windows-latest
+    needs: build-windows
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: ver
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $tag = "${{ github.event.inputs.tag }}"
+          } else {
+            $tag = "${{ github.ref_name }}"
+          }
+          $ver = $tag -replace '^v',''
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "ver=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Building installer for mosaic-$ver"
+
+      - name: Download Windows zip artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-windows-x86_64
+          path: dist/
+
+      - name: Extract zip into staging tree
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem dist/*.zip | Select-Object -First 1
+          Expand-Archive $zip.FullName -DestinationPath dist
+          Get-ChildItem dist -Directory
+
+      - name: Locate Inno Setup
+        id: iscc
+        shell: pwsh
+        run: |
+          $candidates = @(
+            "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+            "C:\Program Files\Inno Setup 6\ISCC.exe"
+          )
+          $iscc = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) {
+            Write-Host "ISCC.exe not on runner; installing via Chocolatey..."
+            choco install innosetup -y --no-progress
+            $iscc = (Get-Item "C:\Program Files (x86)\Inno Setup 6\ISCC.exe").FullName
+          }
+          Write-Host "Using $iscc"
+          "path=$iscc" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Run ISCC.exe
+        shell: pwsh
+        working-directory: install\windows
+        run: |
+          $ver  = "${{ steps.ver.outputs.ver }}"
+          $stage = "..\..\dist\mosaic-$ver-windows-x86_64"
+          & "${{ steps.iscc.outputs.path }}" `
+              "/DMosaicVersion=$ver" `
+              "/DMosaicStageDir=$stage" `
+              mosaic.iss
+          Get-ChildItem Output
+
+      - name: Stage installer artifact
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.ver.outputs.ver }}"
+          Copy-Item "install\windows\Output\mosaic-$ver-setup.exe" `
+                    "dist\mosaic-$ver-setup.exe"
+          Get-ChildItem dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-installer
+          path: dist/mosaic-*-setup.exe
+          retention-days: 7
 
   # ────────────────────────────────────────────────────────────
   # Publish — collect the per-platform tarballs + checksum file
@@ -140,7 +272,7 @@ jobs:
   publish:
     name: Publish GitHub Release
     runs-on: ubuntu-22.04
-    needs: [build-linux, build-macos]
+    needs: [build-linux, build-macos, build-windows, build-windows-installer]
     permissions:
       contents: write   # required by softprops/action-gh-release
     timeout-minutes: 5
@@ -170,10 +302,22 @@ jobs:
           name: release-macos-arm64
           path: dist/
 
+      - name: Download Windows zip artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-windows-x86_64
+          path: dist/
+
+      - name: Download Windows installer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-windows-installer
+          path: dist/
+
       - name: Generate SHA-256 checksums
         run: |
           cd dist
-          sha256sum mosaic-*.tar.gz | tee checksums.sha256
+          sha256sum mosaic-*.tar.gz mosaic-*.zip mosaic-*-setup.exe | tee checksums.sha256
           ls -la
 
       - name: Create GitHub Release
@@ -185,4 +329,6 @@ jobs:
           files: |
             dist/mosaic-*-linux-x86_64.tar.gz
             dist/mosaic-*-macos-arm64.tar.gz
+            dist/mosaic-*-windows-x86_64.zip
+            dist/mosaic-*-setup.exe
             dist/checksums.sha256
