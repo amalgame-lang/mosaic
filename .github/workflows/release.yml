@@ -30,7 +30,7 @@ jobs:
 
   build-linux:
     name: Build (Linux x86_64)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
@@ -139,7 +139,7 @@ jobs:
 
   publish:
     name: Publish GitHub Release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: [build-linux, build-macos]
     permissions:
       contents: write   # required by softprops/action-gh-release
