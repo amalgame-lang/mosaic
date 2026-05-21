@@ -16,9 +16,11 @@ and run from any project to:
 - **Livereload** (v0.3+) — `mosaic dev` also runs a tiny WebSocket
   daemon on `:35729`. Add one line to your HTML and the browser
   auto-refreshes after every rebuild (see Livereload section below)
-- *(planned v0.4+)* hot-reload via `dlopen` of a freshly-built
+- **Scaffold** (v0.4+) — `mosaic new <dir>` drops a working project
+  skeleton + auto-runs `amc package add` so `mosaic dev` produces
+  a serving binary on the very next command
+- *(planned v0.5+)* hot-reload via `dlopen` of a freshly-built
   `app.so` so in-flight WebSocket connections survive
-- *(planned v0.4+)* scaffold new Mosaic apps with `mosaic new`
 
 `amalgame-web` is the **runtime library** (Router / Session /
 WebContext). Mosaic is the **build tool**. Different lifecycle,
