@@ -29,6 +29,10 @@ Commands:
   mosaic routes [DIR]   Just regenerate _routes.am from the given app
                         dir (defaults to ./app).
   mosaic new [DIR]      Scaffold a new Mosaic application skeleton.
+  mosaic supervise ...  Run a worker under the hot-reload supervisor
+                        (v0.5+ alpha; pair with net-http v0.8.0+ for
+                        zero-downtime WS reload — see
+                        docs/proposals/hot-reload.md).
   mosaic version        Show installed version.
   mosaic help           This message.
 
@@ -52,8 +56,9 @@ case "${1:-help}" in
     build)          shift; exec "$SCRIPT_DIR/mosaic-build.sh"  "$@" ;;
     dev)            shift; exec "$SCRIPT_DIR/mosaic-dev.sh"    "$@" ;;
     routes)         shift; exec "$SCRIPT_DIR/mosaic-routes.sh" "$@" ;;
+    supervise)      shift; exec "$SCRIPT_DIR/mosaic-supervise" "$@" ;;
     version|-v|--version)
-        echo "mosaic v0.4.0"
+        echo "mosaic v0.5.0-alpha"
         ;;
     help|-h|--help)
         usage

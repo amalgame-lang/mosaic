@@ -83,6 +83,22 @@ for s in mosaic mosaic-routes.sh mosaic-build.sh mosaic-dev.sh mosaic-new.sh; do
     ok "$s → $BIN_DIR/"
 done
 
+# v0.5+: mosaic-supervise is a tiny C program (hot-reload worker
+# orchestrator).  Compile on install rather than shipping pre-
+# built binaries per platform — keeps the release-asset story
+# simple, and a C compiler is a hard dep of mosaic anyway (every
+# user's project goes through gcc for the final link step).
+if [ -f "$SRC/tools/mosaic-supervise.c" ]; then
+    CC="${CC:-cc}"
+    if command -v "$CC" >/dev/null 2>&1; then
+        "$CC" -O2 -Wall "$SRC/tools/mosaic-supervise.c" -o "$BIN_DIR/mosaic-supervise"
+        chmod 755 "$BIN_DIR/mosaic-supervise"
+        ok "mosaic-supervise (compiled with $CC) → $BIN_DIR/"
+    else
+        say "skipping mosaic-supervise — no C compiler on PATH (\`mosaic supervise\` will be unavailable)"
+    fi
+fi
+
 # ── Install livereload daemon source ─────────────────────
 # mosaic dev builds this AM file the first time livereload kicks in
 # (or after a v0.X bump). Lives in $PREFIX/share/mosaic/ so it's
