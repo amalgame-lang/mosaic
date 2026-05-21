@@ -78,7 +78,7 @@ SRC="$(find "$TMP" -maxdepth 1 -type d -name 'mosaic-*' | head -1)"
 # (which it locates via $SCRIPT_DIR relative to itself). Install
 # all four into the same bin dir so they stay siblings.
 mkdir -p "$BIN_DIR"
-for s in mosaic mosaic-routes.sh mosaic-build.sh mosaic-dev.sh; do
+for s in mosaic mosaic-routes.sh mosaic-build.sh mosaic-dev.sh mosaic-new.sh; do
     install -m 755 "$SRC/tools/$s" "$BIN_DIR/$s"
     ok "$s → $BIN_DIR/"
 done
