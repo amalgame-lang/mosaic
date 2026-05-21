@@ -2,24 +2,31 @@
 # ─────────────────────────────────────────────────────────────────
 #  tools/mosaic-dev.sh — DEV mode: watch app/ + rebuild + restart
 #
-#  Strategy: simple but effective.
-#    1. Build the project (delegate to mosaic-build.sh)
-#    2. Start ./server in the background, capture PID
-#    3. Poll the source tree every 500 ms via `find -newer`
-#    4. On change: kill the running server, rebuild, restart
+#  Two reload modes, picked by --supervise:
+#
+#  Default (brutal): kill + rebuild + restart. Simple, but drops
+#                    every in-flight HTTP request + WebSocket on
+#                    every save.
+#
+#  --supervise (v0.5+): spawn `mosaic-supervise` once, pipe
+#                    `reload\n` commands to it on each rebuild.
+#                    The supervisor starts a new worker on the same
+#                    port (via SO_REUSEPORT, requires amalgame-net-
+#                    http v0.8.0+), waits a short overlap window,
+#                    then SIGTERMs the old worker. The old worker
+#                    drains in-flight WebSocket connections up to
+#                    --supervise-grace seconds before exiting.
+#                    WebSocket clients survive the rebuild.
 #
 #  No filewatcher dependency (inotify-tools / fswatch) — POSIX
 #  `find -newer ./server` works everywhere. Costs a tiny bit of
 #  CPU but for ~10 .am files the poll is sub-millisecond.
 #
-#  The v0.2.x roadmap upgrades this to `app.so` + `dlopen` hot-swap,
-#  which keeps in-flight WebSocket connections alive during reload.
-#  v0.2 is the brutal-but-honest version: every code change drops
-#  the server and a fresh one comes up ~200 ms later.
-#
 #  Usage:
 #    mosaic dev [--app <dir>] [--entry <file>] [-o <out>]
 #               [--port <int>] [--no-rebuild]
+#               [--supervise] [--supervise-grace <s>]
+#               [--supervise-overlap-ms <ms>]
 #
 #  Env: AMC, AMC_RUNTIME (passed through to mosaic-build.sh)
 # ─────────────────────────────────────────────────────────────────
@@ -33,6 +40,9 @@ PORT=""
 SKIP_INITIAL=false
 LIVERELOAD=true
 LIVERELOAD_PORT=35729
+SUPERVISE=false
+SUPERVISE_GRACE=60
+SUPERVISE_OVERLAP_MS=250
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -43,6 +53,9 @@ while [ $# -gt 0 ]; do
         --no-rebuild)       SKIP_INITIAL=true; shift ;;
         --no-livereload)    LIVERELOAD=false; shift ;;
         --livereload-port)  LIVERELOAD_PORT="$2"; shift 2 ;;
+        --supervise)        SUPERVISE=true; shift ;;
+        --supervise-grace)      SUPERVISE_GRACE="$2"; shift 2 ;;
+        --supervise-overlap-ms) SUPERVISE_OVERLAP_MS="$2"; shift 2 ;;
         -h|--help)
             sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
             exit 0 ;;
@@ -64,8 +77,26 @@ warn() { echo -e "${YELLOW}[dev]${NC} $1" >&2; }
 err()  { echo -e "${RED}[dev]${NC} $1" >&2; }
 
 # ── Server lifecycle ────────────────────────────────────────────
+#
+# Two modes, selected by --supervise:
+#
+#   default (v0.4 brutal): kill + rebuild + start. Drops every
+#                          in-flight HTTP request + WebSocket
+#                          connection on every reload.
+#
+#   --supervise           (v0.5+): spawn mosaic-supervise once, pipe
+#                          `reload\n` commands to it on each rebuild.
+#                          Supervisor starts a new worker on the same
+#                          port (via SO_REUSEPORT, requires amalgame-
+#                          net-http v0.8.0+), waits an overlap window
+#                          then SIGTERMs the old worker. The old
+#                          worker drains in-flight WS connections up
+#                          to --supervise-grace seconds before exiting.
+#                          WebSocket clients survive the rebuild.
 
 SERVER_PID=""
+SUPERVISE_PID=""
+SUPERVISE_FIFO=""
 
 stop_server() {
     if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
@@ -87,6 +118,56 @@ start_server() {
     "$OUT" &
     SERVER_PID=$!
     say "server PID=${SERVER_PID}"
+}
+
+# Supervisor-mode lifecycle.
+start_supervisor() {
+    local sup_bin=""
+    for cand in \
+        "$SCRIPT_DIR/mosaic-supervise" \
+        "$SCRIPT_DIR/../libexec/mosaic-supervise" \
+        "$(command -v mosaic-supervise 2>/dev/null)"; do
+        if [ -n "$cand" ] && [ -x "$cand" ]; then sup_bin="$cand"; break; fi
+    done
+    if [ -z "$sup_bin" ]; then
+        err "--supervise: mosaic-supervise binary not found (re-run install.sh)"
+        return 1
+    fi
+    SUPERVISE_FIFO=$(mktemp -u -t mosaic-supervise-XXXXXX).fifo
+    mkfifo "$SUPERVISE_FIFO"
+    # Keep the FIFO open for writing on fd 9 so the supervisor doesn't
+    # see EOF every time we finish writing a single reload line.
+    exec 9<>"$SUPERVISE_FIFO"
+    "$sup_bin" --binary "$OUT" \
+               --grace "$SUPERVISE_GRACE" \
+               --overlap "$SUPERVISE_OVERLAP_MS" \
+               <"$SUPERVISE_FIFO" &
+    SUPERVISE_PID=$!
+    say "supervisor PID=${SUPERVISE_PID} (grace ${SUPERVISE_GRACE}s, overlap ${SUPERVISE_OVERLAP_MS}ms)"
+}
+
+supervise_reload() {
+    if [ -n "$SUPERVISE_PID" ] && kill -0 "$SUPERVISE_PID" 2>/dev/null; then
+        echo "reload" >&9
+    fi
+}
+
+stop_supervisor() {
+    if [ -n "$SUPERVISE_PID" ] && kill -0 "$SUPERVISE_PID" 2>/dev/null; then
+        echo "quit" >&9 2>/dev/null || true
+        # Give the supervisor up to 3s to drain workers + exit.
+        for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+            kill -0 "$SUPERVISE_PID" 2>/dev/null || break
+            sleep 0.2
+        done
+        kill -TERM "$SUPERVISE_PID" 2>/dev/null || true
+        wait "$SUPERVISE_PID" 2>/dev/null || true
+    fi
+    # Close our write fd + remove the FIFO.
+    exec 9>&- 2>/dev/null || true
+    [ -n "$SUPERVISE_FIFO" ] && [ -p "$SUPERVISE_FIFO" ] && rm -f "$SUPERVISE_FIFO"
+    SUPERVISE_PID=""
+    SUPERVISE_FIFO=""
 }
 
 build() {
@@ -188,8 +269,14 @@ trigger_reload() {
 # ── SIGINT/SIGTERM handler: stop daemon + server cleanly ────────
 
 cleanup() {
-    say "stopping server (${SERVER_PID:-none})"
-    stop_server
+    if $SUPERVISE && [ -n "$SUPERVISE_PID" ]; then
+        say "stopping supervisor (${SUPERVISE_PID})"
+        stop_supervisor
+    fi
+    if [ -n "$SERVER_PID" ]; then
+        say "stopping server (${SERVER_PID})"
+        stop_server
+    fi
     stop_lr_daemon
     say "bye"
     exit 0
@@ -213,13 +300,21 @@ start_lr_daemon
 if ! $SKIP_INITIAL; then
     say "initial build..."
     if build; then
-        start_server
+        if $SUPERVISE; then
+            start_supervisor
+        else
+            start_server
+        fi
     else
         err "initial build failed — waiting for source changes"
     fi
 else
     if [ -x "$OUT" ]; then
-        start_server
+        if $SUPERVISE; then
+            start_supervisor
+        else
+            start_server
+        fi
     else
         warn "$OUT not found — first change will trigger a build"
     fi
@@ -247,12 +342,29 @@ while true; do
     fi
     if [ -n "$changes" ]; then
         say "${YELLOW}change detected${NC} → rebuilding..."
-        stop_server
-        if build; then
-            start_server
-            trigger_reload          # tell connected browsers to refresh
+        if $SUPERVISE; then
+            # Supervisor stays up across reloads; just rebuild and
+            # tell it to swap the worker. If the rebuild fails the
+            # current worker keeps serving — better than the brutal
+            # path's "drop everything then panic".
+            if build; then
+                if [ -n "$SUPERVISE_PID" ] && kill -0 "$SUPERVISE_PID" 2>/dev/null; then
+                    supervise_reload
+                else
+                    start_supervisor
+                fi
+                trigger_reload      # browser refresh signal
+            else
+                err "rebuild failed — current worker keeps serving"
+            fi
         else
-            err "rebuild failed — keeping old server stopped, waiting for next change"
+            stop_server
+            if build; then
+                start_server
+                trigger_reload      # tell connected browsers to refresh
+            else
+                err "rebuild failed — keeping old server stopped, waiting for next change"
+            fi
         fi
     fi
 done
