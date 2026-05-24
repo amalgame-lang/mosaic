@@ -122,6 +122,21 @@ check "/api/info → 200"    "$(curl -s http://localhost$H/api/info -o /dev/null
 check "POST /api/info 201" "$(curl -s -X POST http://localhost$H/api/info -o /dev/null -w '%{http_version} %{http_code}')" "1.1 201"
 check "/nope → 404"        "$(curl -s http://localhost$H/nope     -o /dev/null -w '%{http_version} %{http_code}')" "1.1 404"
 
+# v0.6.0 — Static / public/ auto-pairing
+echo "── Static (public/) ──"
+check "/style.css → 200"   "$(curl -s http://localhost$H/style.css  -o /dev/null -w '%{http_code}')" "200"
+check "/style.css MIME"    "$(curl -sI http://localhost$H/style.css | grep -i '^content-type:' | head -c 30 | tr -d '\r')" "Content-Type: text/css; charse"
+check "/favicon.ico → 200" "$(curl -s http://localhost$H/favicon.ico -o /dev/null -w '%{http_code}')" "200"
+# Binary-safe: favicon contains NUL bytes — wire bytes must match
+# the on-disk file byte-for-byte, not strlen-truncate at first NUL.
+FAV_DISK=$(stat -c%s "$DEMO_DIR/public/favicon.ico")
+FAV_WIRE=$(curl -s http://localhost$H/favicon.ico | wc -c)
+check "/favicon.ico binary-safe" "$FAV_WIRE" "$FAV_DISK"
+ETAG=$(curl -sI http://localhost$H/style.css | grep -i '^etag:' | sed -E 's/^etag:[[:space:]]*//I; s/\r$//')
+check "/style.css emits ETag"    "$([ -n "$ETAG" ] && echo yes || echo no)" "yes"
+check "If-None-Match → 304"      "$(curl -s -H "If-None-Match: $ETAG" http://localhost$H/style.css -o /dev/null -w '%{http_code}')" "304"
+check "/no-such.css → 404"       "$(curl -s http://localhost$H/no-such.css -o /dev/null -w '%{http_code}')" "404"
+
 echo ""
 echo "  $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
