@@ -120,6 +120,24 @@ fi
 
 # ── Step 3: pick up per-package facades + system libs ───────────
 
+# v0.6.0: walk the package cache and add `-I` for every cached
+# package's runtime/. amc's resolver auto-emits `#include` lines
+# for every cached header in the generated `.c`; if any of those
+# transitively `#include`s a sibling (e.g. net-http v0.9.1+'s
+# Amalgame_Net_Http.h pulls in Amalgame_Async.h), gcc needs the
+# sibling on -I. Mirrors what amc v0.8.49 does internally for
+# its own precompile / test / build invocations.
+PKG_INCLUDES=()
+if [ -d "$HOME/.amalgame/packages/github.com/amalgame-lang" ]; then
+    for pkg_parent in "$HOME/.amalgame/packages/github.com/amalgame-lang"/*/; do
+        latest=$(ls -1 "$pkg_parent" 2>/dev/null | sort -V | tail -1)
+        runtime_dir="${pkg_parent}${latest}/runtime"
+        if [ -n "$latest" ] && [ -d "$runtime_dir" ]; then
+            PKG_INCLUDES+=(-I"$runtime_dir")
+        fi
+    done
+fi
+
 PKG_ARCHIVES=()
 SYS_LIBS=()
 
@@ -133,9 +151,18 @@ if [ -f amalgame.lock ]; then
             echo "warn: pkg cache missing for $name: $PKG_CACHE" >&2
             continue
         fi
-        # First class name from amalgame.toml drives the archive name.
+        # First class name from amalgame.toml drives the archive
+        # name. v0.6.0: try `classes = [...]` (multi-class) first,
+        # fall back to `class = "..."` (single-class). Pre-v0.6.0
+        # only checked plural; single-class packages (datetime,
+        # random, logging, threading, async, redis) got silently
+        # skipped → consumer links failed on missing symbols.
         CLS=$(awk '/^classes/,/]/' "$PKG_CACHE/amalgame.toml" \
               | grep -oE '"[A-Z][A-Za-z0-9_]+"' | head -1 | tr -d '"' || true)
+        if [ -z "$CLS" ]; then
+            CLS=$(grep -E '^[[:space:]]*class[[:space:]]*=' "$PKG_CACHE/amalgame.toml" \
+                  | grep -oE '"[A-Za-z_][A-Za-z0-9_]*"' | head -1 | tr -d '"' || true)
+        fi
         if [ -z "$CLS" ]; then
             echo "warn: no class found in $PKG_CACHE/amalgame.toml — skipping" >&2
             continue
@@ -146,7 +173,8 @@ if [ -f amalgame.lock ]; then
             mkdir -p "$PKG_CACHE/build/linux-x86_64"
             (cd "$PKG_CACHE" && \
              "$AMC" --lib --quiet -o "build/linux-x86_64/${CLS}-facade" facade.am >/dev/null && \
-             gcc -O2 -Iruntime -I"$AMC_RUNTIME" -c "build/linux-x86_64/${CLS}-facade.c" \
+             gcc -O2 -Iruntime -I"$AMC_RUNTIME" "${PKG_INCLUDES[@]}" \
+                 -c "build/linux-x86_64/${CLS}-facade.c" \
                  -o "build/linux-x86_64/${CLS}-facade.o" && \
              ar rcs "build/linux-x86_64/libamalgame-pkg-${CLS}.a" \
                     "build/linux-x86_64/${CLS}-facade.o")
@@ -204,10 +232,19 @@ fi
 #
 # Drop these flags once the header-only-types gap is closed.
 
-GCC_CMD=(gcc -O2 -I"$AMC_RUNTIME"
+GCC_CMD=(gcc -O2 -I"$AMC_RUNTIME" "${PKG_INCLUDES[@]}"
          -Wno-int-conversion -Wno-incompatible-pointer-types
          "$NAME.c"
+         # `--start-group ... --end-group` lets ld iterate the
+         # archive set until cross-references stabilize. Without it,
+         # the link is left-to-right one pass: any forward reference
+         # from an earlier .a into a later one is an undefined
+         # symbol (e.g. web's libamalgame-pkg-Router.a calls into
+         # crypto/logging/random, which may be listed before or
+         # after it depending on amalgame.lock iteration order).
+         -Wl,--start-group
          "${PKG_ARCHIVES[@]}" "$LIBAMALGAME"
+         -Wl,--end-group
          -lgc -lm -lz "${SYS_LIBS[@]}"
          -o "$OUT")
 
