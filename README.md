@@ -19,8 +19,14 @@ and run from any project to:
 - **Scaffold** (v0.4+) — `mosaic new <dir>` drops a working project
   skeleton + auto-runs `amc package add` so `mosaic dev` produces
   a serving binary on the very next command
-- *(planned v0.5+)* hot-reload via `dlopen` of a freshly-built
-  `app.so` so in-flight WebSocket connections survive
+- **Hot-reload supervisor** (v0.5+) — `mosaic dev --supervise`
+  swaps a freshly-built worker behind a TCP shim so in-flight
+  WebSocket connections survive code edits
+- **Static `public/` auto-pairing** (v0.6+) — drop files in
+  `public/` next to `app/` and they're served from disk
+  automatically. Next.js convention. `public/favicon.ico` →
+  `GET /favicon.ico` zero config (uses amalgame-web v0.13.0's
+  `Static` middleware + binary-safe pipeline)
 
 `amalgame-web` is the **runtime library** (Router / Session /
 WebContext). Mosaic is the **build tool**. Different lifecycle,
@@ -151,6 +157,49 @@ public class Page {
     }
 }
 ```
+
+## Static files (`public/` — v0.6.0+)
+
+Drop assets in a `public/` directory next to `app/` and they're
+served from disk automatically. Convention copied from Next.js:
+
+```text
+public/favicon.ico       → GET /favicon.ico   (binary-safe — NUL bytes OK)
+public/style.css         → GET /style.css
+public/img/logo.png      → GET /img/logo.png
+```
+
+`mosaic-routes.sh` detects `public/` at generation time and emits
+`app.WithStatic(Static.New("/", "./public"))` into the generated
+`_routes.am`. The Static middleware (amalgame-web v0.13.0) handles:
+
+- MIME from extension (~35 types)
+- Strong ETag (`"size-mtime"`) → `If-None-Match` → 304
+- Path traversal guard (`../` blocked via `Path_Normalize` +
+  root containment)
+- Binary-safe transport (PNG / JPEG / PDF / WASM survive NULs)
+- 403 on dir / 404 on missing / 405 on non-GET
+
+Server code, with `Routes.Bind(WebApp)` (v0.6.0):
+
+```amalgame
+// server.am
+let app = WebApp.New()
+Routes.Bind(app)         // registers all app/*.am routes + WithStatic(public/)
+app.Serve(3000)
+```
+
+To disable the auto-pairing or point elsewhere:
+
+```bash
+MOSAIC_PUBLIC=                    # disable
+MOSAIC_PUBLIC=./custom-assets     # override location
+mosaic routes app _routes.am
+```
+
+The legacy `Routes.Register(Router r)` method is still emitted for
+backward compat with pre-v0.6.0 servers that wire a bare Router by
+hand — same routes, no static support.
 
 ## What's NOT in v0.1 yet
 
