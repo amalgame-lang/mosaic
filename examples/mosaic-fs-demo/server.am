@@ -39,7 +39,13 @@ public class Program {
         Routes.Bind(app)
 
         Console.WriteLine("Mosaic v0.6 — filesystem routing + public/ demo")
-        Console.WriteLine("  " + String_FromInt(app.Routes.Routes.Count()) + " routes registered from app/")
+        // Bind a local to dodge an amc cgen quirk: chained access
+        // through two identically-named fields (WebApp.Routes:Router
+        // and Router.Routes:List<Route>) like
+        // `app.Routes.Routes.Count()` gets mangled in the generated
+        // C. A single-hop binding resolves cleanly.
+        let router: Router = app.Routes
+        Console.WriteLine("  " + String_FromInt(router.Routes.Count()) + " routes registered from app/")
         Console.WriteLine("  static mount(s): " + String_FromInt(app.StaticMounts.Count()))
         Console.WriteLine("  open http://localhost:3000/ in any browser")
         Console.WriteLine("")
