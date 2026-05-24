@@ -40,14 +40,34 @@ jobs:
         run: |
           # v0.6.0: Mosaic now exercises amalgame-web's Static
           # middleware (v0.13.0+) via public/ auto-pairing.
-          # Pre-install redis first to dodge a known amc shortname
-          # resolution gap (web declares the dep as
-          # `amalgame-database-nosql-redis` but the index alias is
-          # `redis`; transitive auto-install fails until we
-          # pre-cache it manually).
+          #
+          # Known amc bug: web's transitive auto-install fails on
+          # `amalgame-database-nosql-redis` because the index alias
+          # is `redis` and amc's shortname resolution doesn't
+          # check the cache for already-installed full names.
+          # Workaround: pre-install redis (under its index
+          # shortname) + manually clone web into the package cache
+          # using the same `<tag>_<short-sha>` layout amc expects.
+          # The test runner discovers cached versions via
+          # `find ~/.amalgame/packages/...` so this is enough.
           "$AMC" package add redis
           "$AMC" package add net-http
-          "$AMC" package add web
+          "$AMC" package add tls
+          "$AMC" package add crypto
+          "$AMC" package add datetime
+          "$AMC" package add random
+          "$AMC" package add logging
+          "$AMC" package add async
+
+          # Clone amalgame-web v0.13.0 straight into the cache layout
+          # amc expects, bypassing the broken transitive resolve.
+          WEB_TAG="v0.13.0"
+          WEB_SHA=$(git ls-remote https://github.com/amalgame-lang/amalgame-web.git "refs/tags/${WEB_TAG}" | cut -c1-8)
+          WEB_CACHE="$HOME/.amalgame/packages/github.com/amalgame-lang/amalgame-web/${WEB_TAG}_${WEB_SHA}"
+          mkdir -p "$(dirname "$WEB_CACHE")"
+          git clone --quiet --depth 1 --branch "$WEB_TAG" \
+            https://github.com/amalgame-lang/amalgame-web.git "$WEB_CACHE"
+          echo "Cached amalgame-web $WEB_TAG at $WEB_CACHE"
 
       - name: Run mosaic smoke tests
         run: ./tests/run_tests.sh "$AMC"
