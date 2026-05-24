@@ -1,14 +1,31 @@
-// Mosaic filesystem-routing demo — serves the routes discovered in
-// `app/` over plain HTTP/1.1 (browser-friendly).
+// Mosaic filesystem-routing demo (v0.6.0+).
 //
-// To test HTTP/2 cleartext (h2c) instead, swap the H1* refs for H2*
-// and change `Http1.Serve(...)` → `Http2.Serve(...)`. Browsers refuse
-// h2c (they require ALPN h2 over TLS), so test it with
-// `curl --http2-prior-knowledge http://localhost:3000/`.
+// Showcases the full Next.js-style devexp now that
+// amalgame-web v0.13.0 + Mosaic v0.6.0 are landed:
+//
+//   - app/ is scanned by tools/mosaic-routes.sh which generates
+//     `_routes.am`. Each .am file becomes one route, with
+//     `[id]` → `:id` and `[...slug]` → `*slug` conventions.
+//   - public/ next to app/ is auto-paired into a static mount
+//     at `/`. So `public/style.css` is served at `/style.css`
+//     and `public/favicon.ico` at `/favicon.ico` straight from
+//     disk (binary-safe pipeline + strong ETag + 304).
+//   - WebApp.Serve(port) drives an HTTP/1.1 server with
+//     RateLimit/CORS/CSRF/SecurityHeaders middleware hooks
+//     available via fluent .With*() calls (none configured
+//     in this minimal demo — see amalgame-web README).
 //
 // Build:
 //   tools/mosaic-routes.sh app _routes.am
-//   amc server.am _routes.am -o server  (+ gcc; or use mosaic-build.sh)
+//   mosaic-build.sh server      # or `mosaic build`
+//
+// Test:
+//   ./server
+//   curl http://localhost:3000/                  # index.am
+//   curl http://localhost:3000/about             # about.am
+//   curl http://localhost:3000/users/42          # users/[id].am
+//   curl -X POST http://localhost:3000/api/info  # api/info.am POST
+//   curl http://localhost:3000/style.css         # public/style.css
 
 namespace App
 
@@ -18,34 +35,15 @@ import Amalgame.Net.Http
 
 public class Program {
     public static void Main(string[] args) {
-        let r: Router = new Router()
-        Routes.Register(r)
+        let app: WebApp = WebApp.New()
+        Routes.Bind(app)
 
-        Console.WriteLine("Mosaic v0.2 — filesystem routing demo")
-        Console.WriteLine("  " + String_FromInt(r.Routes.Count()) + " routes registered from app/")
+        Console.WriteLine("Mosaic v0.6 — filesystem routing + public/ demo")
+        Console.WriteLine("  " + String_FromInt(app.Routes.Routes.Count()) + " routes registered from app/")
+        Console.WriteLine("  static mount(s): " + String_FromInt(app.StaticMounts.Count()))
         Console.WriteLine("  open http://localhost:3000/ in any browser")
         Console.WriteLine("")
 
-        let handler = conn => {
-            let method: string = H1Conn.Method(conn)
-            let path:   string = H1Conn.Path(conn)
-            Console.WriteLine("[" + method + "] " + path)
-
-            let m: RouteMatch = r.Match(method, path)
-            if (m == null) {
-                H1Conn.Respond(conn, 404, "text/plain", "Not Found\n")
-                return 0
-            }
-            let ctx = new WebContext()
-            ctx.Params = m.Params
-            let resp: HttpResponse = m.Route.Handler(ctx)
-
-            let ct: string = resp.Headers.Get("Content-Type")
-            if (String_Length(ct) == 0) { ct = "text/plain; charset=utf-8" }
-            H1Conn.Respond(conn, resp.StatusCode, ct, resp.BodyText)
-            return 0
-        }
-
-        Http1.Serve(3000, handler)
+        app.Serve(3000)
     }
 }

@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        amc-tag: [v0.8.34]
+        amc-tag: [v0.8.48]
     steps:
       - uses: actions/checkout@v4
 
@@ -38,8 +38,16 @@ jobs:
 
       - name: Install package deps (amalgame-web, amalgame-net-http)
         run: |
-          "$AMC" package add web@v0.2.1
-          "$AMC" package add net-http@v0.2.1  # Http1.Serve lives here
+          # v0.6.0: Mosaic now exercises amalgame-web's Static
+          # middleware (v0.13.0+) via public/ auto-pairing.
+          # Pre-install redis first to dodge a known amc shortname
+          # resolution gap (web declares the dep as
+          # `amalgame-database-nosql-redis` but the index alias is
+          # `redis`; transitive auto-install fails until we
+          # pre-cache it manually).
+          "$AMC" package add redis
+          "$AMC" package add net-http
+          "$AMC" package add web
 
       - name: Run mosaic smoke tests
         run: ./tests/run_tests.sh "$AMC"
