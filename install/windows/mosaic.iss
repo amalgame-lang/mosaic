@@ -22,7 +22,7 @@
 ; ═══════════════════════════════════════════════════════════
 
 #ifndef MosaicVersion
-  #define MosaicVersion "0.5.4"
+  #define MosaicVersion "0.6.0"
 #endif
 #ifndef MosaicStageDir
   #define MosaicStageDir "..\..\dist\mosaic-" + MosaicVersion + "-windows-x86_64"
