@@ -50,8 +50,11 @@ check() {
 
 # Need a lock pointing at installed packages. Synthesize from the
 # user's package cache so we don't burn into a hardcoded rev.
-WEB_DIR=$(find "$HOME/.amalgame/packages/github.com/amalgame-lang/amalgame-web" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort | tail -1)
-HTTP_DIR=$(find "$HOME/.amalgame/packages/github.com/amalgame-lang/amalgame-net-http" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort | tail -1)
+# sort -V (version sort) — lexicographic `sort | tail -1` picks
+# v0.3.0 over v0.13.0 because '3' > '1' at position 4; -V honors
+# the semver numeric order so v0.13.0 wins as expected.
+WEB_DIR=$(find "$HOME/.amalgame/packages/github.com/amalgame-lang/amalgame-web" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort -V | tail -1)
+HTTP_DIR=$(find "$HOME/.amalgame/packages/github.com/amalgame-lang/amalgame-net-http" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort -V | tail -1)
 if [ -z "$WEB_DIR" ] || [ -z "$HTTP_DIR" ]; then
     echo "error: install amalgame-web + amalgame-net-http first via amc package add"
     exit 2
@@ -95,10 +98,16 @@ trap 'mv -f server.am.orig server.am 2>/dev/null || true' EXIT
 # Http1 since mosaic v0.1.3 but we keep the test resilient to swaps.
 sed -i -E "s/(Http[12]\.Serve)\([0-9]+/\1($PORT/" server.am
 
+# Disable set -e around mosaic-build.sh so the `[ ! -x ./server ]`
+# diagnostic + log dump actually run on a failed build (otherwise
+# set -e exits silently with whatever code mosaic-build.sh returned).
+set +e
 "$PKG_DIR/tools/mosaic-build.sh" > /tmp/mosaic-build.log 2>&1
-if [ ! -x ./server ]; then
-    echo -e "  ${RED}FAIL${NC} (build) — last 20 lines of log:"
-    tail -20 /tmp/mosaic-build.log
+BUILD_RC=$?
+set -e
+if [ "$BUILD_RC" -ne 0 ] || [ ! -x ./server ]; then
+    echo -e "  ${RED}FAIL${NC} (build, exit=$BUILD_RC) — last 30 lines of log:"
+    tail -30 /tmp/mosaic-build.log
     exit 1
 fi
 echo -e "  ${GREEN}PASS${NC} (./server built)"
