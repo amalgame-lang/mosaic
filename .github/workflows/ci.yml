@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        amc-tag: [v0.8.49]
+        amc-tag: [v0.8.50]
     steps:
       - uses: actions/checkout@v4
 
@@ -36,14 +36,9 @@ jobs:
           echo "AMC=$RUNNER_TEMP/amc-install/bin/amc" >> $GITHUB_ENV
           echo "AMC_RUNTIME=$RUNNER_TEMP/amc-install/share/amalgame/runtime" >> $GITHUB_ENV
 
-      - name: Install amalgame-web (+ transitive deps)
-        run: |
-          # v0.8.49 fixes the transitive shortname resolution + the
-          # gcc -I propagation for Async.h. A single
-          # `amc package add web` now pulls + precompiles every dep
-          # cleanly. (Previously needed a per-dep manual install +
-          # a manual git-clone-into-cache for web.)
-          "$AMC" package add web
-
       - name: Run mosaic smoke tests
+        # v0.6.0: tests/run_tests.sh invokes `amc package add web`
+        # itself (from the demo dir). amc v0.8.49 writes the
+        # complete lock + amalgame.toml; the trap inside the test
+        # script restores the source tree on exit.
         run: ./tests/run_tests.sh "$AMC"
