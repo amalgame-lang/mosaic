@@ -39,3 +39,20 @@ root  = "/srv/docs/public"
 
   [site.security.headers]
   preset = "strict_html"
+
+# One [[proxy]] per reverse-proxied virtual host. Requests to `hosts` are
+# forwarded to upstream(s) by path prefix (longest match wins). Each
+# proxy host joins the TLS/SNI/ACME set just like a [[site]].
+# Each route is a single-line inline table (TOML inline tables can't span
+# lines); the array itself may wrap. First match by longest prefix wins.
+[[proxy]]
+hosts  = ["api.example.com"]
+routes = [
+  { prefix = "/", upstream = "http://127.0.0.1:8080" },
+  { prefix = "/heavy", upstreams = ["http://127.0.0.1:9001", "http://127.0.0.1:9002"], strategy = "round_robin" },
+]
+
+# Shorthand — a single upstream, no `routes` table:
+[[proxy]]
+hosts    = ["app.example.com"]
+upstream = "http://127.0.0.1:3000"
