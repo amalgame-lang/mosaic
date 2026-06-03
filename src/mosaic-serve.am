@@ -45,7 +45,7 @@ import Amalgame.Formats.Toml
 public class Program {
     public static void Main(string[] args) {
         var path: string = "mosaic.toml"
-        if (args.Length >= 2) { path = args[1] }
+        if (Args_Count() >= 2) { path = Args_Get(1) }
         if (!File.Exists(path)) {
             Console.WriteError("mosaic serve: config not found: " + path)
             return
@@ -86,7 +86,7 @@ public class Program {
         let sites: List<TomlValue> = root.Get("site").AsArray()
         let sn: int = sites.Count()
         for i in 0..sn {
-            let site: TomlValue = sites.At(i)
+            let site: TomlValue = sites.Get(i)
             let hosts: List<string> = Program.StrList(site, "hosts")
             if (hosts.Count() == 0) { continue }
             var dir: string = ""
