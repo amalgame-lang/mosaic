@@ -144,8 +144,12 @@ resolve_config() {
 }
 
 # Most actions only need a name, not a live config file. install needs both.
+# NB: must be an `if` (not `[ -z … ] && die`): a bare `&&` list whose left
+# side is false returns 1, and as a bare statement that trips `set -e`.
 derive_name_only() {
-    [ -z "$NAME" ] && die "this action needs --name (no CONFIG to derive it from)"
+    if [ -z "$NAME" ]; then
+        die "this action needs --name (no CONFIG to derive it from)"
+    fi
 }
 
 OS="$(uname -s)"
