@@ -1,0 +1,189 @@
+// mosaic serve — the config-driven Mosaic server.
+//
+// Reads a mosaic.toml and runs the whole stack with no Amalgame code:
+//   mosaic serve [mosaic.toml]
+//
+// This is the `mosaic` CLI's runtime half (the build/dev half stays in
+// the shell tools). It parses the TOML, assembles a MosaicServer (from
+// amalgame-web) — N static sites by Host, each with its middleware from
+// the [security.*] / [logging] FromMap factories — provisions certs via
+// ACME (amalgame-tls), and serves over HTTPS with SNI (or plain HTTP
+// for dev / behind a terminator).
+//
+// Reverse-proxy / load-balanced routes ([[proxy]] / [[upstream]]) are
+// the next slice (need MosaicServer.AddHandler + amalgame-net-proxy).
+//
+// Schema (see docs.amalgame.me → Mosaic → Configuration):
+//
+//   [server]
+//   port = 443            # default 443 with TLS, 8080 without
+//   tls  = true
+//
+//   [tls]
+//   acme    = true
+//   email   = "admin@example.com"
+//   cert_dir = "/var/mosaic/certs"
+//
+//   [[site]]
+//   hosts = ["example.com", "www.example.com"]
+//   root  = "/srv/example"
+//     [site.security.headers]
+//     preset = "strict_html"
+//     [site.security.cors]
+//     preset = "strict"
+//     allowed_origins = ["https://app.example.com"]
+
+namespace MosaicServe
+
+import Amalgame.Collections
+import Amalgame.String
+import Amalgame.Net.Http
+import Amalgame.Web
+import Amalgame.Tls
+import Amalgame.Formats.Toml
+
+public class Program {
+    public static void Main(string[] args) {
+        var path: string = "mosaic.toml"
+        if (args.Length >= 2) { path = args[1] }
+        if (!File.Exists(path)) {
+            Console.WriteError("mosaic serve: config not found: " + path)
+            return
+        }
+        let text: string = File.ReadAll(path)
+        let root: TomlValue = Toml.Parse(text)
+
+        let m: MosaicServer = MosaicServer.New()
+
+        // ── [tls] ─────────────────────────────────────
+        var useTls:  bool   = false
+        var acme:    bool   = false
+        var email:   string = ""
+        var certDir: string = "/var/mosaic/certs"
+        if (root.Has("tls")) {
+            let tls: TomlValue = root.Get("tls")
+            if (tls.Has("cert_dir")) { certDir = tls.Get("cert_dir").AsString() }
+            if (tls.Has("email"))    { email   = tls.Get("email").AsString() }
+            if (tls.Has("acme"))     { acme    = tls.Get("acme").AsBool() }
+            useTls = true
+        }
+        m.WithCertDir(certDir)
+
+        // ── [server] ──────────────────────────────────
+        var port: int = 8080
+        if (useTls) { port = 443 }
+        if (root.Has("server")) {
+            let srv: TomlValue = root.Get("server")
+            if (srv.Has("tls"))  { useTls = srv.Get("tls").AsBool() }
+            if (srv.Has("port")) { port = srv.Get("port").AsInt() }
+        }
+
+        // ── [[site]] ──────────────────────────────────
+        if (!root.Has("site")) {
+            Console.WriteError("mosaic serve: no [[site]] in " + path)
+            return
+        }
+        let sites: List<TomlValue> = root.Get("site").AsArray()
+        let sn: int = sites.Count()
+        for i in 0..sn {
+            let site: TomlValue = sites.At(i)
+            let hosts: List<string> = Program.StrList(site, "hosts")
+            if (hosts.Count() == 0) { continue }
+            var dir: string = ""
+            if (site.Has("root")) { dir = site.Get("root").AsString() }
+
+            let app: WebApp = MosaicServer.BuildStaticApp(dir)
+            Program.ApplyMiddleware(app, site)
+            m.AddSite(hosts, app)
+            Console.WriteLine("site: " + hosts.Get(0) + " → " + dir)
+        }
+
+        // ── ACME (CLI layer owns the cert lifecycle) ──
+        if (useTls && acme) {
+            let domains: List<string> = m.DomainList()
+            let dn: int = domains.Count()
+            for i in 0..dn {
+                let d: string = domains.Get(i)
+                let certPath: string = m.certPathOf(d)
+                if (AcmeNative.NeedsRenewal(certPath, 30)) {
+                    Console.WriteLine("acme: ensuring cert for " + d)
+                    let rc: int = AcmeNative.EnsureCert(d, email, certDir, AcmeNative.LeProd())
+                    if (rc != 0) {
+                        Console.WriteError("acme: EnsureCert(" + d + ") rc=" + String_FromInt(rc))
+                    }
+                }
+            }
+        }
+
+        // ── Serve ─────────────────────────────────────
+        if (useTls) {
+            Console.WriteLine("mosaic: HTTPS on :" + String_FromInt(port) + " (SNI multi-site)")
+            m.ServeHttps(port)
+        } else {
+            Console.WriteLine("mosaic: HTTP on :" + String_FromInt(port) + " (Host dispatch)")
+            m.Serve(port)
+        }
+    }
+
+    // Apply per-site middleware from [site.security.*] / [site.logging].
+    private static void ApplyMiddleware(WebApp app, TomlValue site) {
+        if (site.Has("security")) {
+            let sec: TomlValue = site.Get("security")
+            if (sec.Has("headers")) { app.WithSecurityHeaders(SecurityHeaders.FromMap(Program.TableToMap(sec.Get("headers")))) }
+            if (sec.Has("cors"))    { app.WithCors(Cors.FromMap(Program.TableToMap(sec.Get("cors")))) }
+            if (sec.Has("csrf"))    { app.WithCsrf(Csrf.FromMap(Program.TableToMap(sec.Get("csrf")))) }
+            if (sec.Has("rate_limit")) { app.WithRateLimit(RateLimit.FromMap(Program.TableToMap(sec.Get("rate_limit")))) }
+        }
+        if (site.Has("logging")) {
+            app.WithLogging(LogConfig.FromMap(Program.TableToMap(site.Get("logging"))))
+        }
+    }
+
+    // A TOML string-array field → List<string>.
+    private static List<string> StrList(TomlValue table, string key) {
+        let out: List<string> = new List<string>()
+        if (!table.Has(key)) { return out }
+        let arr: TomlValue = table.Get(key)
+        if (!arr.IsArray()) { return out }
+        let n: int = arr.Count()
+        for i in 0..n {
+            let v: TomlValue = arr.At(i)
+            out.Add(v.AsString())
+        }
+        return out
+    }
+
+    // Flatten a TOML table into the Map<string,string> the FromMap
+    // factories consume: scalars stringified, string-arrays comma-joined.
+    private static Map<string, string> TableToMap(TomlValue table) {
+        let out: Map<string, string> = new Map<string, string>()
+        if (!table.IsTable()) { return out }
+        let keys: List<string> = table.Keys()
+        let n: int = keys.Count()
+        for i in 0..n {
+            let k: string = keys.Get(i)
+            let v: TomlValue = table.Get(k)
+            if (v.IsString())      { out.Set(k, v.AsString()) }
+            else if (v.IsBool())   { out.Set(k, Program.BoolStr(v.AsBool())) }
+            else if (v.IsInt())    { out.Set(k, String_FromInt(v.AsInt())) }
+            else if (v.IsArray())  { out.Set(k, Program.JoinArray(v)) }
+        }
+        return out
+    }
+
+    private static string JoinArray(TomlValue arr) {
+        var s: string = ""
+        let n: int = arr.Count()
+        for i in 0..n {
+            let v: TomlValue = arr.At(i)
+            if (i > 0) { s = s + "," }
+            s = s + v.AsString()
+        }
+        return s
+    }
+
+    private static string BoolStr(bool b) {
+        if (b) { return "true" }
+        return "false"
+    }
+}
