@@ -176,6 +176,9 @@ public class Program {
         if (site.Has("logging")) {
             app.WithLogging(LogConfig.FromMap(Program.TableToMap(site.Get("logging"))))
         }
+        if (site.Has("compress")) {
+            app.WithCompress(Compression.FromMap(Program.TableToMap(site.Get("compress"))))
+        }
     }
 
     // Build a ReverseProxy from a [[proxy]] block. Routes come from a
