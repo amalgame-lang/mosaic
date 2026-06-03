@@ -1,0 +1,41 @@
+# mosaic.toml — example config for `mosaic serve`.
+#
+# Run the whole stack from this file, no Amalgame code:
+#   mosaic serve mosaic.toml
+#
+# Full reference: https://docs.amalgame.me/en/mosaic/03-configuration.html
+
+[server]
+port = 443
+tls  = true
+
+[tls]
+acme     = true
+email    = "admin@example.com"
+cert_dir = "/var/mosaic/certs"
+
+# One [[site]] per virtual host. `hosts` = the domains served; `root` =
+# the directory of static files (assets by MIME, / → index.html,
+# /<slug> → <slug>.html).
+[[site]]
+hosts = ["example.com", "www.example.com"]
+root  = "/srv/example/public"
+
+  # Per-site middleware — each table maps to a FromMap factory.
+  [site.security.headers]
+  preset = "strict_html"
+
+  [site.security.cors]
+  preset          = "strict"
+  allowed_origins = ["https://app.example.com"]
+
+  [site.logging]
+  access_log = true
+  level      = "info"
+
+[[site]]
+hosts = ["docs.example.com"]
+root  = "/srv/docs/public"
+
+  [site.security.headers]
+  preset = "strict_html"
