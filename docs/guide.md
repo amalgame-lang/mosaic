@@ -735,6 +735,12 @@ Useful flags:
 
 ## 10. Production deployment
 
+> Deploying the **config-driven** server (`mosaic serve mosaic.toml`)
+> rather than a hand-built `./server`? Skip the hand-written unit:
+> `mosaic service install` generates and registers it for you across
+> systemd / launchd / Windows SCM (`mosaic service --help`). The manual
+> unit below is for a custom `./server` binary you compiled yourself.
+
 A minimal systemd unit:
 
 ```ini

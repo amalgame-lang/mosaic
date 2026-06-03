@@ -156,6 +156,15 @@ file that uses `amalgame-net-http v0.4`'s `Ws.Serve` plus an
 - **`mosaic routes [DIR]`** — just regen `_routes.am` from the
   given app dir (default `./app`). Mostly useful for debugging
   the generator.
+- **`mosaic serve [mosaic.toml]`** — run the config-driven server
+  (multi-site static + TLS/ACME + middleware + reverse proxy) from
+  a `mosaic.toml`, no Amalgame code. nginx/Caddy-style.
+- **`mosaic service <action>`** — register a `mosaic serve` site as
+  a native system service (systemd / launchd / Windows SCM), so it
+  survives reboots and crashes. Actions: `install`, `uninstall`,
+  `start`, `stop`, `restart`, `status`, `logs`. System scope by
+  default; flags `--name`, `--user`, `--user-scope`, `--no-enable`,
+  `--no-start`. Run `mosaic service --help` for details.
 
 `mosaic-build.sh` reads `amalgame.lock`, finds the cached package
 archives, precompiles any missing facades, and links the final
