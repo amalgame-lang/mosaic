@@ -36,6 +36,10 @@ Commands:
                         (v0.5+ alpha; pair with net-http v0.8.0+ for
                         zero-downtime WS reload — see
                         docs/proposals/hot-reload.md).
+  mosaic service ...    Install a Mosaic site as a native system
+                        service (systemd / launchd / Windows SCM):
+                        install, uninstall, start, stop, status, logs.
+                        See \`mosaic service --help\`.
   mosaic version        Show installed version.
   mosaic help           This message.
 
@@ -61,6 +65,7 @@ case "${1:-help}" in
     serve)          shift; exec "$SCRIPT_DIR/mosaic-serve.sh"  "$@" ;;
     routes)         shift; exec "$SCRIPT_DIR/mosaic-routes.sh" "$@" ;;
     supervise)      shift; exec "$SCRIPT_DIR/mosaic-supervise" "$@" ;;
+    service)        shift; exec "$SCRIPT_DIR/mosaic-service.sh" "$@" ;;
     version|-v|--version)
         echo "mosaic v0.7.0"
         ;;

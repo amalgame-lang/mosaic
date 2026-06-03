@@ -84,7 +84,12 @@ jobs:
           int main(void){ struct GC_stack_base sb; GC_get_my_stackbottom(&sb); GC_set_stackbottom((void*)0,&sb); return 0; }
           EOF
           gcc /tmp/gcprobe.c -lgc -o /tmp/gcprobe || { echo "libgc too old (need >=7.6 for GC_set_stackbottom)"; exit 1; }
-          ( cd src && amc package add web net-http tls net-proxy && amc build mosaic-serve.am -o mosaic-serve )
+          # service@v0.2.0 (not the index's latest v0.1.0): v0.2.0 is the
+          # first cut with RunAsService + the native Windows SCM dispatcher
+          # that `mosaic service` (sc create) relies on. Pinned because no
+          # GitHub release object exists for v0.2.0 yet, so the unpinned
+          # shortname still resolves to v0.1.0 via the index.
+          ( cd src && amc package add web net-http tls net-proxy service@v0.2.0 && amc build mosaic-serve.am -o mosaic-serve )
           file src/mosaic-serve
 
       - name: Stage release artifacts
@@ -95,7 +100,8 @@ jobs:
           install -m 755 tools/mosaic                tools/mosaic-routes.sh \
                          tools/mosaic-build.sh       tools/mosaic-dev.sh \
                          tools/mosaic-new.sh         tools/mosaic-serve.sh \
-                         tools/mosaic-supervise      src/mosaic-serve \
+                         tools/mosaic-service.sh     tools/mosaic-supervise \
+                         src/mosaic-serve \
                          "$STAGE/bin/"
           install -m 644 tools/livereload-daemon.am  \
                          tools/livereload-daemon.toml \
@@ -145,7 +151,7 @@ jobs:
           # loop to stay portable instead of relying on GNU coreutils.
           for f in tools/mosaic tools/mosaic-routes.sh tools/mosaic-build.sh \
                    tools/mosaic-dev.sh tools/mosaic-new.sh tools/mosaic-serve.sh \
-                   tools/mosaic-supervise; do
+                   tools/mosaic-service.sh tools/mosaic-supervise; do
               install -m 755 "$f" "$STAGE/bin/"
           done
           for f in tools/livereload-daemon.am tools/livereload-daemon.toml \
@@ -207,7 +213,8 @@ jobs:
           mkdir -p "$STAGE/bin" "$STAGE/share/mosaic"
           # Bash scripts — need Git Bash or WSL at runtime.
           for f in tools/mosaic tools/mosaic-routes.sh tools/mosaic-build.sh \
-                   tools/mosaic-dev.sh tools/mosaic-new.sh tools/mosaic-serve.sh; do
+                   tools/mosaic-dev.sh tools/mosaic-new.sh tools/mosaic-serve.sh \
+                   tools/mosaic-service.sh; do
               install -m 755 "$f" "$STAGE/bin/"
           done
           for f in tools/livereload-daemon.am tools/livereload-daemon.toml \
