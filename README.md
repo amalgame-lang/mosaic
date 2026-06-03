@@ -35,7 +35,10 @@ and run from any project to:
   logging). The config-driven server is `src/mosaic-serve.am` (built
   on amalgame-web's `MosaicServer`); see `examples/mosaic.toml` and
   the [Configuration reference](https://docs.amalgame.me/en/mosaic/03-configuration.html).
-  Reverse-proxy / load-balanced routes are the next slice.
+  Reverse-proxy / load-balanced hosts (`[[proxy]]`, via
+  amalgame-net-proxy) mount on the same front — longest-prefix routing,
+  single upstream or a weighted pool (round_robin / ip_hash /
+  least_conn).
 
 `amalgame-web` is the **runtime library** (Router / Session /
 WebContext / MosaicServer). Mosaic is the **tool** — build, dev, and

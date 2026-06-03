@@ -10,8 +10,8 @@
 // ACME (amalgame-tls), and serves over HTTPS with SNI (or plain HTTP
 // for dev / behind a terminator).
 //
-// Reverse-proxy / load-balanced routes ([[proxy]] / [[upstream]]) are
-// the next slice (need MosaicServer.AddHandler + amalgame-net-proxy).
+// Reverse-proxy / load-balanced hosts ([[proxy]], via amalgame-net-proxy)
+// mount on the same front (Host dispatch + SNI + ACME + :80->:443).
 //
 // Schema (see docs.amalgame.me → Mosaic → Configuration):
 //
@@ -24,7 +24,7 @@
 //   email   = "admin@example.com"
 //   cert_dir = "/var/mosaic/certs"
 //
-//   [[site]]
+//   [[site]]                       # static site by Host
 //   hosts = ["example.com", "www.example.com"]
 //   root  = "/srv/example"
 //     [site.security.headers]
@@ -32,12 +32,24 @@
 //     [site.security.cors]
 //     preset = "strict"
 //     allowed_origins = ["https://app.example.com"]
+//
+//   [[proxy]]                      # reverse proxy / load balancer by Host
+//   hosts  = ["api.example.com"]
+//   routes = [                     # longest matching prefix wins
+//     { prefix = "/",      upstream  = "http://127.0.0.1:8080" },
+//     { prefix = "/heavy", upstreams = ["http://127.0.0.1:9001",
+//                                       "http://127.0.0.1:9002"],
+//       strategy = "round_robin" },  # | "ip_hash" | "least_conn"
+//   ]
+//   # shorthand for a single route: drop `routes` and put
+//   # `upstream = "..."` (or `upstreams = [...]`) directly on the block.
 
 namespace MosaicServe
 
 import Amalgame.Collections
 import Amalgame.String
 import Amalgame.Net.Http
+import Amalgame.Net.Proxy
 import Amalgame.Web
 import Amalgame.Tls
 import Amalgame.Formats.Toml
@@ -79,23 +91,42 @@ public class Program {
         }
 
         // ── [[site]] ──────────────────────────────────
-        if (!root.Has("site")) {
-            Console.WriteError("mosaic serve: no [[site]] in " + path)
+        if (!root.Has("site") && !root.Has("proxy")) {
+            Console.WriteError("mosaic serve: no [[site]] or [[proxy]] in " + path)
             return
         }
-        let sites: List<TomlValue> = root.Get("site").AsArray()
-        let sn: int = sites.Count()
-        for i in 0..sn {
-            let site: TomlValue = sites.Get(i)
-            let hosts: List<string> = Program.StrList(site, "hosts")
-            if (hosts.Count() == 0) { continue }
-            var dir: string = ""
-            if (site.Has("root")) { dir = site.Get("root").AsString() }
+        if (root.Has("site")) {
+            let sites: List<TomlValue> = root.Get("site").AsArray()
+            let sn: int = sites.Count()
+            for i in 0..sn {
+                let site: TomlValue = sites.Get(i)
+                let hosts: List<string> = Program.StrList(site, "hosts")
+                if (hosts.Count() == 0) { continue }
+                var dir: string = ""
+                if (site.Has("root")) { dir = site.Get("root").AsString() }
 
-            let app: WebApp = MosaicServer.BuildStaticApp(dir)
-            Program.ApplyMiddleware(app, site)
-            m.AddSite(hosts, app)
-            Console.WriteLine("site: " + hosts.Get(0) + " → " + dir)
+                let app: WebApp = MosaicServer.BuildStaticApp(dir)
+                Program.ApplyMiddleware(app, site)
+                m.AddSite(hosts, app)
+                Console.WriteLine("site: " + hosts.Get(0) + " → " + dir)
+            }
+        }
+
+        // ── [[proxy]] — reverse proxy / load balancer ──
+        // Each block proxies its hosts to upstream(s) by path prefix.
+        // Mounted via MosaicServer.AddHandler so it shares the same Host
+        // dispatch + SNI + ACME + :80→:443 machinery as static sites.
+        if (root.Has("proxy")) {
+            let proxies: List<TomlValue> = root.Get("proxy").AsArray()
+            let pn: int = proxies.Count()
+            for i in 0..pn {
+                let blk: TomlValue = proxies.Get(i)
+                let phosts: List<string> = Program.StrList(blk, "hosts")
+                if (phosts.Count() == 0) { continue }
+                let proxy: ReverseProxy = Program.BuildProxy(blk)
+                m.AddHandler(phosts, (req: HttpRequest) => proxy.Handle(req))
+                Console.WriteLine("proxy: " + phosts.Get(0) + " → " + String_FromInt(proxy.Routes.Count()) + " route(s)")
+            }
         }
 
         // ── ACME (CLI layer owns the cert lifecycle) ──
@@ -136,6 +167,48 @@ public class Program {
         }
         if (site.Has("logging")) {
             app.WithLogging(LogConfig.FromMap(Program.TableToMap(site.Get("logging"))))
+        }
+    }
+
+    // Build a ReverseProxy from a [[proxy]] block. Routes come from a
+    // `routes = [ { … }, … ]` inline-table array (longest matching prefix
+    // wins at request time). A nested `[[proxy.route]]` array-of-tables is
+    // NOT used: the bundled TOML parser mishandles array-of-tables nested
+    // inside another, so inline tables are the portable form. As a
+    // shorthand, a block with a top-level `upstream`/`upstreams` (no
+    // `routes`) is treated as a single route at prefix `/`.
+    private static ReverseProxy BuildProxy(TomlValue blk) {
+        let proxy: ReverseProxy = ReverseProxy.New()
+        if (blk.Has("routes")) {
+            let routes: List<TomlValue> = blk.Get("routes").AsArray()
+            let rn: int = routes.Count()
+            for i in 0..rn { Program.addRoute(proxy, routes.Get(i)) }
+        } else {
+            Program.addRoute(proxy, blk)
+        }
+        return proxy
+    }
+
+    // Add one route (single `upstream`, or a load-balanced `upstreams`
+    // pool with optional `strategy`) at its `prefix` (default "/").
+    private static void addRoute(ReverseProxy proxy, TomlValue rt) {
+        var prefix: string = "/"
+        if (rt.Has("prefix")) { prefix = rt.Get("prefix").AsString() }
+        if (rt.Has("upstreams")) {
+            let urls: List<string> = Program.StrList(rt, "upstreams")
+            if (urls.Count() == 0) { return }
+            let pool: UpstreamPool = UpstreamPool.New()
+            let un: int = urls.Count()
+            for j in 0..un { pool.Add(urls.Get(j)) }
+            if (rt.Has("strategy")) {
+                let s: string = rt.Get("strategy").AsString()
+                if (s == "ip_hash")        { pool.IpHash() }
+                else if (s == "least_conn") { pool.LeastConnections() }
+                else                        { pool.RoundRobin() }
+            }
+            proxy.ForwardPool(prefix, pool)
+        } else if (rt.Has("upstream")) {
+            proxy.Forward(prefix, rt.Get("upstream").AsString())
         }
     }
 
