@@ -119,7 +119,7 @@ jobs:
   build-macos:
     name: Build (macOS arm64)
     runs-on: macos-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -139,6 +139,24 @@ jobs:
           cc -O2 -Wall tools/mosaic-supervise.c -o tools/mosaic-supervise
           file tools/mosaic-supervise
 
+      # Same zero-amc binary as Linux, for macOS arm64. bdw-gc /
+      # openssl@3 / nghttp2 come from Homebrew (the package runtime
+      # headers probe /opt/homebrew via __has_include); zlib + sqlite
+      # ship with the macOS SDK. Needs amc >= v0.8.74 (deep-member-chain
+      # cgen fix) — same as Linux.
+      - name: Build mosaic-serve (config-driven server)
+        run: |
+          set -e
+          brew install bdw-gc openssl@3 nghttp2
+          AMC_TAG=v0.8.74
+          curl -sSL -o amc.tar.gz \
+            "https://github.com/amalgame-lang/Amalgame/releases/download/${AMC_TAG}/amc-${AMC_TAG#v}-macos-arm64.tar.gz"
+          mkdir -p "$HOME/amc" && tar -xzf amc.tar.gz -C "$HOME/amc" --strip-components=1
+          export PATH="$HOME/amc/bin:$PATH"
+          amc --version
+          ( cd src && amc package add web net-http tls net-proxy service && amc build mosaic-serve.am -o mosaic-serve )
+          file src/mosaic-serve
+
       - name: Stage release artifacts
         run: |
           VER="${{ steps.ver.outputs.ver }}"
@@ -148,7 +166,8 @@ jobs:
           # loop to stay portable instead of relying on GNU coreutils.
           for f in tools/mosaic tools/mosaic-routes.sh tools/mosaic-build.sh \
                    tools/mosaic-dev.sh tools/mosaic-new.sh tools/mosaic-serve.sh \
-                   tools/mosaic-service.sh tools/mosaic-supervise; do
+                   tools/mosaic-service.sh tools/mosaic-supervise \
+                   src/mosaic-serve; do
               install -m 755 "$f" "$STAGE/bin/"
           done
           for f in tools/livereload-daemon.am tools/livereload-daemon.toml \
