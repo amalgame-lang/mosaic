@@ -53,9 +53,17 @@ import Amalgame.Net.Proxy
 import Amalgame.Web
 import Amalgame.Tls
 import Amalgame.Formats.Toml
+import Amalgame.Service
 
 public class Program {
     public static void Main(string[] args) {
+        // Run-as-service bootstrap. POSIX: installs the SIGTERM/SIGINT
+        // handler (no-op cost when run in the foreground). Windows: also
+        // connects the SCM dispatcher so `mosaic service` (sc create)
+        // can track + stop the process cleanly. Must come before any
+        // listener is opened.
+        Service.RunAsService("mosaic")
+
         var path: string = "mosaic.toml"
         if (Args_Count() >= 2) { path = Args_Get(1) }
         if (!File.Exists(path)) {
