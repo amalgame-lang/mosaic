@@ -146,7 +146,7 @@ if [ "$USE_PREBUILT" -eq 1 ]; then
     # mosaic-supervise.exe instead of mosaic-supervise; pick
     # whichever filename exists.
     for s in mosaic mosaic-routes.sh mosaic-build.sh mosaic-dev.sh \
-             mosaic-new.sh mosaic-supervise mosaic-supervise.exe; do
+             mosaic-new.sh mosaic-service.sh mosaic-supervise mosaic-supervise.exe; do
         if [ -f "$SRC/bin/$s" ]; then
             install -m 755 "$SRC/bin/$s" "$BIN_DIR/$s"
             ok "$s → $BIN_DIR/"
@@ -154,7 +154,7 @@ if [ "$USE_PREBUILT" -eq 1 ]; then
     done
 else
     # Source layout — copy shell scripts, compile the supervisor.
-    for s in mosaic mosaic-routes.sh mosaic-build.sh mosaic-dev.sh mosaic-new.sh; do
+    for s in mosaic mosaic-routes.sh mosaic-build.sh mosaic-dev.sh mosaic-new.sh mosaic-service.sh; do
         install -m 755 "$SRC/tools/$s" "$BIN_DIR/$s"
         ok "$s → $BIN_DIR/"
     done

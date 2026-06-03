@@ -42,3 +42,100 @@ jobs:
         # complete lock + amalgame.toml; the trap inside the test
         # script restores the source tree on exit.
         run: ./tests/run_tests.sh "$AMC"
+
+  # End-to-end check of `mosaic service install` on a real systemd.
+  # GitHub-hosted ubuntu runners run systemd as PID 1, so we can build
+  # mosaic-serve, register it as a system service via the new command,
+  # assert it comes up + serves, then tear it back down.
+  service:
+    name: mosaic service install (systemd e2e)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential libgc-dev libssl-dev \
+                                  libcurl4-openssl-dev libnghttp2-dev
+
+      - name: Download amc v0.8.74
+        run: |
+          set -e
+          AMC_TAG=v0.8.74
+          curl -sSL -o amc.tar.gz \
+            "https://github.com/amalgame-lang/Amalgame/releases/download/${AMC_TAG}/amc-${AMC_TAG#v}-linux-x86_64.tar.gz"
+          mkdir -p "$RUNNER_TEMP/amc" && tar -xzf amc.tar.gz -C "$RUNNER_TEMP/amc" --strip-components=1
+          echo "AMC=$RUNNER_TEMP/amc/bin/amc" >> $GITHUB_ENV
+
+      - name: Build mosaic-serve (config-driven server)
+        run: |
+          set -e
+          # service (>=0.2.0) carries RunAsService used by mosaic-serve's Main.
+          ( cd src && "$AMC" package add web net-http tls net-proxy service \
+                   && "$AMC" build mosaic-serve.am -o mosaic-serve )
+          file src/mosaic-serve
+
+      - name: Install mosaic CLI + server into a bin dir
+        run: |
+          BIN="$RUNNER_TEMP/mbin"
+          mkdir -p "$BIN"
+          # The dispatcher resolves the *-sh scripts and mosaic-serve via
+          # its own dir, so they must all sit side by side.
+          install -m 755 tools/mosaic tools/mosaic-serve.sh tools/mosaic-service.sh "$BIN/"
+          install -m 755 src/mosaic-serve "$BIN/"
+          echo "MOSAIC=$BIN/mosaic" >> $GITHUB_ENV
+
+      - name: Prepare a static site + config
+        run: |
+          ROOT="$RUNNER_TEMP/site"
+          mkdir -p "$ROOT"
+          echo '<h1>mosaic service e2e</h1>' > "$ROOT/index.html"
+          cat > "$RUNNER_TEMP/mosaic.toml" <<EOF
+          [server]
+          port = 18080
+          tls  = false
+
+          [[site]]
+          hosts = ["localhost"]
+          root  = "$ROOT"
+          EOF
+          cat "$RUNNER_TEMP/mosaic.toml"
+
+      - name: mosaic service install (system scope, sudo)
+        run: |
+          sudo "$MOSAIC" service install --name mosaic-citest "$RUNNER_TEMP/mosaic.toml"
+          echo "--- generated unit ---"
+          cat /etc/systemd/system/mosaic-citest.service
+
+      - name: Assert unit active + serving
+        run: |
+          set -e
+          test -f /etc/systemd/system/mosaic-citest.service
+          systemctl is-active --quiet mosaic-citest
+          systemctl is-enabled --quiet mosaic-citest
+          # Server is up = port answers (any HTTP status proves the listener).
+          code=000
+          for i in $(seq 1 15); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:18080/ || echo 000)
+            [ "$code" != "000" ] && break
+            sleep 1
+          done
+          echo "HTTP status from :18080 = $code"
+          [ "$code" != "000" ]
+          # Best-effort body check (depends on Host routing); don't fail on it.
+          curl -s http://localhost:18080/ | grep -q 'mosaic service e2e' \
+            && echo "body matched" || echo "(body not matched — Host routing, non-fatal)"
+
+      - name: status + logs
+        run: |
+          "$MOSAIC" service status --name mosaic-citest || true
+          sudo "$MOSAIC" service logs --name mosaic-citest | tail -20 || true
+
+      - name: mosaic service uninstall (teardown)
+        run: |
+          set -e
+          sudo "$MOSAIC" service uninstall --name mosaic-citest
+          ! test -f /etc/systemd/system/mosaic-citest.service
+          ! systemctl is-active --quiet mosaic-citest
+          echo "uninstalled cleanly"
