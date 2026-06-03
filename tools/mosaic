@@ -24,6 +24,9 @@ mosaic — Amalgame web app build tool
 Commands:
   mosaic build [...]    Build the project: regen _routes.am from app/,
                         compile via amc, link via gcc, produce ./server.
+  mosaic serve [F]     Run the config-driven server from a mosaic.toml
+                        (default: ./mosaic.toml) — multi-site static +
+                        TLS/ACME + middleware, no Amalgame code.
   mosaic dev [...]      DEV mode — watch app/ + server.am, rebuild and
                         restart on every change. Ctrl-C to stop.
   mosaic routes [DIR]   Just regenerate _routes.am from the given app
@@ -55,10 +58,11 @@ case "${1:-help}" in
     new)            shift; exec "$SCRIPT_DIR/mosaic-new.sh"    "$@" ;;
     build)          shift; exec "$SCRIPT_DIR/mosaic-build.sh"  "$@" ;;
     dev)            shift; exec "$SCRIPT_DIR/mosaic-dev.sh"    "$@" ;;
+    serve)          shift; exec "$SCRIPT_DIR/mosaic-serve.sh"  "$@" ;;
     routes)         shift; exec "$SCRIPT_DIR/mosaic-routes.sh" "$@" ;;
     supervise)      shift; exec "$SCRIPT_DIR/mosaic-supervise" "$@" ;;
     version|-v|--version)
-        echo "mosaic v0.6.0"
+        echo "mosaic v0.7.0"
         ;;
     help|-h|--help)
         usage

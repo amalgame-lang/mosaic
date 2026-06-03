@@ -1,3 +1,4 @@
+
 [package]
 name = "mosaic-fs-demo"
 version = "0.2.0"
@@ -5,5 +6,45 @@ entry = "server.am"
 description = "Filesystem-routed demo with public/ static auto-pairing (amalgame-web v0.13.0)."
 
 [dependencies]
-amalgame-web      = ">=0.13.0"
+amalgame-web = ">=0.13.0"
 amalgame-net-http = ">=0.9.6"
+
+[dependencies.crypto]
+git = "github.com/amalgame-lang/amalgame-crypto"
+tag = "v0.3.0"
+
+[dependencies.tls]
+git = "github.com/amalgame-lang/amalgame-tls"
+tag = "v0.3.1"
+
+[dependencies.async]
+git = "github.com/amalgame-lang/amalgame-async"
+tag = "v0.2.3"
+
+[dependencies.http]
+git = "github.com/amalgame-lang/amalgame-net-http"
+tag = "v0.9.6"
+
+[dependencies.datetime]
+git = "github.com/amalgame-lang/amalgame-datetime"
+tag = "v0.1.0"
+
+[dependencies.random]
+git = "github.com/amalgame-lang/amalgame-random"
+tag = "v0.1.0"
+
+[dependencies.logging]
+git = "github.com/amalgame-lang/amalgame-logging"
+tag = "v0.1.0"
+
+[dependencies.redis]
+git = "github.com/amalgame-lang/amalgame-database-nosql-redis"
+tag = "v0.2.0"
+
+[dependencies.threading]
+git = "github.com/amalgame-lang/amalgame-threading"
+tag = "v0.1.0"
+
+[dependencies.web]
+git = "github.com/amalgame-lang/amalgame-web"
+tag = "v0.13.3"
