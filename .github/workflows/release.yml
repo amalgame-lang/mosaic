@@ -84,7 +84,7 @@ jobs:
           int main(void){ struct GC_stack_base sb; GC_get_my_stackbottom(&sb); GC_set_stackbottom((void*)0,&sb); return 0; }
           EOF
           gcc /tmp/gcprobe.c -lgc -o /tmp/gcprobe || { echo "libgc too old (need >=7.6 for GC_set_stackbottom)"; exit 1; }
-          ( cd src && amc package add web net-http tls && amc build mosaic-serve.am -o mosaic-serve )
+          ( cd src && amc package add web net-http tls net-proxy && amc build mosaic-serve.am -o mosaic-serve )
           file src/mosaic-serve
 
       - name: Stage release artifacts
