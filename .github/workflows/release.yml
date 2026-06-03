@@ -30,7 +30,14 @@ jobs:
 
   build-linux:
     name: Build (Linux x86_64)
-    runs-on: ubuntu-22.04
+    # ubuntu-24.04 (not 22.04): the mosaic-serve binary pulls
+    # amalgame-async/threading via amalgame-web, whose generated C
+    # links GC_set_stackbottom / GC_get_my_stackbottom (per-thread GC
+    # stack registration). Those need libgc >= 7.6; the apt libgc on
+    # 22.04 is too old and the link fails. 24.04's libgc has them —
+    # it's the baseline the whole Amalgame web stack (async/net-http)
+    # already tests on.
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
@@ -70,6 +77,13 @@ jobs:
           mkdir -p "$HOME/amc" && tar -xzf amc.tar.gz -C "$HOME/amc" --strip-components=1
           export PATH="$HOME/amc/bin:$PATH"
           amc --version
+          # Fail fast + clearly if the runner's libgc lacks the
+          # per-thread stack-bottom API the threaded stack needs.
+          cat > /tmp/gcprobe.c <<'EOF'
+          #include <gc.h>
+          int main(void){ struct GC_stack_base sb; GC_get_my_stackbottom(&sb); GC_set_stackbottom((void*)0,&sb); return 0; }
+          EOF
+          gcc /tmp/gcprobe.c -lgc -o /tmp/gcprobe || { echo "libgc too old (need >=7.6 for GC_set_stackbottom)"; exit 1; }
           ( cd src && amc package add web net-http tls && amc build mosaic-serve.am -o mosaic-serve )
           file src/mosaic-serve
 
