@@ -28,9 +28,40 @@ and run from any project to:
   `GET /favicon.ico` zero config (uses amalgame-web v0.13.0's
   `Static` middleware + binary-safe pipeline)
 
+- **Server mode** (v0.7+) — `mosaic serve mosaic.toml` runs the
+  whole stack from a config file, **no Amalgame code** (like
+  nginx/Caddy): multi-site static hosting by Host, TLS + ACME, and
+  per-site middleware (security headers, CORS, CSRF, rate limiting,
+  logging). The config-driven server is `src/mosaic-serve.am` (built
+  on amalgame-web's `MosaicServer`); see `examples/mosaic.toml` and
+  the [Configuration reference](https://docs.amalgame.me/en/mosaic/03-configuration.html).
+  Reverse-proxy / load-balanced routes are the next slice.
+
 `amalgame-web` is the **runtime library** (Router / Session /
-WebContext). Mosaic is the **build tool**. Different lifecycle,
-different install path.
+WebContext / MosaicServer). Mosaic is the **tool** — build, dev, and
+(v0.7+) `serve`. Different lifecycle, different install path.
+
+## Run as a server
+
+```bash
+mosaic serve /etc/mosaic/mosaic.toml
+```
+
+One binary, one config, N sites over HTTPS. The `mosaic-serve` binary
+ships per-platform in the release; it parses the TOML and serves
+without a compiler. Minimal config:
+
+```toml
+[server]
+port = 443
+tls  = true
+[tls]
+acme  = true
+email = "admin@example.com"
+[[site]]
+hosts = ["example.com", "www.example.com"]
+root  = "/srv/example/public"
+```
 
 ## Install
 
