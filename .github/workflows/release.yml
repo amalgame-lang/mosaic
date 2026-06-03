@@ -31,7 +31,7 @@ jobs:
   build-linux:
     name: Build (Linux x86_64)
     runs-on: ubuntu-22.04
-    timeout-minutes: 5
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -51,6 +51,24 @@ jobs:
           gcc -O2 -Wall tools/mosaic-supervise.c -o tools/mosaic-supervise
           file tools/mosaic-supervise
 
+      # The config-driven server binary (`mosaic serve`). Build it from
+      # src/mosaic-serve.am against the published Mosaic stack so the
+      # release ships a zero-amc binary. Verified locally: amc package
+      # add web/net-http/tls → amc build → a working multi-site server.
+      - name: Build mosaic-serve (config-driven server)
+        run: |
+          set -e
+          sudo apt-get update -qq
+          sudo apt-get install -y build-essential libgc-dev libssl-dev libnghttp2-dev
+          AMC_TAG=v0.8.74
+          curl -sSL -o amc.tar.gz \
+            "https://github.com/amalgame-lang/Amalgame/releases/download/${AMC_TAG}/amc-${AMC_TAG#v}-linux-x86_64.tar.gz"
+          mkdir -p "$HOME/amc" && tar -xzf amc.tar.gz -C "$HOME/amc" --strip-components=1
+          export PATH="$HOME/amc/bin:$PATH"
+          amc --version
+          ( cd src && amc package add web net-http tls && amc build mosaic-serve.am -o mosaic-serve )
+          file src/mosaic-serve
+
       - name: Stage release artifacts
         run: |
           VER="${{ steps.ver.outputs.ver }}"
@@ -58,10 +76,13 @@ jobs:
           mkdir -p "$STAGE/bin" "$STAGE/share/mosaic"
           install -m 755 tools/mosaic                tools/mosaic-routes.sh \
                          tools/mosaic-build.sh       tools/mosaic-dev.sh \
-                         tools/mosaic-new.sh         tools/mosaic-supervise \
+                         tools/mosaic-new.sh         tools/mosaic-serve.sh \
+                         tools/mosaic-supervise      src/mosaic-serve \
                          "$STAGE/bin/"
           install -m 644 tools/livereload-daemon.am  \
                          tools/livereload-daemon.toml \
+                         src/mosaic-serve.am          \
+                         examples/mosaic.toml         \
                          "$STAGE/share/mosaic/"
           install -m 644 README.md LICENSE           "$STAGE/share/mosaic/"
           cp -R docs                                 "$STAGE/share/mosaic/docs"
@@ -105,10 +126,12 @@ jobs:
           # macOS BSD install(1) takes one source at a time when -m is set;
           # loop to stay portable instead of relying on GNU coreutils.
           for f in tools/mosaic tools/mosaic-routes.sh tools/mosaic-build.sh \
-                   tools/mosaic-dev.sh tools/mosaic-new.sh tools/mosaic-supervise; do
+                   tools/mosaic-dev.sh tools/mosaic-new.sh tools/mosaic-serve.sh \
+                   tools/mosaic-supervise; do
               install -m 755 "$f" "$STAGE/bin/"
           done
           for f in tools/livereload-daemon.am tools/livereload-daemon.toml \
+                   src/mosaic-serve.am examples/mosaic.toml \
                    README.md LICENSE; do
               install -m 644 "$f" "$STAGE/share/mosaic/"
           done
@@ -166,10 +189,11 @@ jobs:
           mkdir -p "$STAGE/bin" "$STAGE/share/mosaic"
           # Bash scripts — need Git Bash or WSL at runtime.
           for f in tools/mosaic tools/mosaic-routes.sh tools/mosaic-build.sh \
-                   tools/mosaic-dev.sh tools/mosaic-new.sh; do
+                   tools/mosaic-dev.sh tools/mosaic-new.sh tools/mosaic-serve.sh; do
               install -m 755 "$f" "$STAGE/bin/"
           done
           for f in tools/livereload-daemon.am tools/livereload-daemon.toml \
+                   src/mosaic-serve.am examples/mosaic.toml \
                    README.md LICENSE; do
               install -m 644 "$f" "$STAGE/share/mosaic/"
           done
