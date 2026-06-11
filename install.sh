@@ -97,7 +97,7 @@ trap 'rm -rf "$TMP"' EXIT
 #      for tags that pre-date the release workflow.
 
 VER_NO_V="${VERSION#v}"
-PREBUILT_URL=""
+PREBUILT_ASSET=""
 PREBUILT_EXT=""
 if [ -n "$TRIPLE" ]; then
     if [ "$TRIPLE" = "windows-x86_64" ]; then
@@ -105,13 +105,17 @@ if [ -n "$TRIPLE" ]; then
     else
         PREBUILT_EXT="tar.gz"
     fi
-    PREBUILT_URL="https://github.com/$REPO/releases/download/$VERSION/mosaic-${VER_NO_V}-${TRIPLE}.${PREBUILT_EXT}"
+    PREBUILT_ASSET="mosaic-${VER_NO_V}-${TRIPLE}.${PREBUILT_EXT}"
 fi
 
 USE_PREBUILT=0
-if [ -n "$PREBUILT_URL" ]; then
+if [ -n "$PREBUILT_ASSET" ]; then
     say "Trying pre-built tarball for $TRIPLE..."
-    if curl -fsSL -o "$TMP/mosaic.${PREBUILT_EXT}" "$PREBUILT_URL" 2>/dev/null; then
+    # Pull through get.amalgame.me first — the sovereign cache+stream mirror,
+    # where every download is counted in Amalgame's own analytics — with a
+    # transparent fall back to GitHub Releases if the mirror is unreachable.
+    if curl -fsSL -o "$TMP/mosaic.${PREBUILT_EXT}" "https://get.amalgame.me/mosaic/$VERSION/$PREBUILT_ASSET" 2>/dev/null \
+       || curl -fsSL -o "$TMP/mosaic.${PREBUILT_EXT}" "https://github.com/$REPO/releases/download/$VERSION/$PREBUILT_ASSET" 2>/dev/null; then
         USE_PREBUILT=1
         if [ "$PREBUILT_EXT" = "zip" ]; then
             unzip -q "$TMP/mosaic.zip" -d "$TMP"
