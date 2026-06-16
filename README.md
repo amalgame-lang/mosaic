@@ -244,19 +244,27 @@ The legacy `Routes.Register(Router r)` method is still emitted for
 backward compat with pre-v0.6.0 servers that wire a bare Router by
 hand — same routes, no static support.
 
-## What's NOT in v0.1 yet
+## Roadmap — what's still missing
 
-- **`mosaic dev` (file watcher + hot reload).** Today every edit
-  needs a full rebuild + restart. v0.2 plans `gcc -shared -fPIC` →
-  `app.so` + inotify + `dlopen` hot-swap so route changes don't
-  need a process restart. The dlopen path also unblocks proper
-  source mapping (errors point at `app/X.am` directly instead of
-  the generated `_routes.am`).
-- **`mosaic new` scaffolding.** v0.3.
-- **A real `mosaic` binary.** Today the CLI is two bash scripts;
-  v0.4+ will rewrite them as proper AM code (`src/*.am`) compiled
-  to a `mosaic` binary shipped via release tarball, mirroring how
-  `amc` itself is distributed.
+`mosaic dev` (v0.2), livereload (v0.3), `mosaic new` (v0.4), the
+hot-reload supervisor (v0.5), static `public/` pairing (v0.6), and
+the config-driven `mosaic serve` / `service` (v0.7+) all ship today.
+What's still open:
+
+- **`dlopen` route hot-swap.** `mosaic dev --supervise` (v0.5) swaps
+  a freshly-built *worker* behind a TCP shim, but a single route edit
+  still rebuilds + restarts the whole binary. The planned
+  `gcc -shared -fPIC` → `app.so` + `dlopen` path would hot-swap just
+  the changed route — and unblocks proper source mapping (errors
+  pointing at `app/X.am` instead of the generated `_routes.am`).
+- **A fully-compiled `mosaic` CLI.** The runtime half (`mosaic serve`)
+  is real AM compiled to the `mosaic-serve` binary, but the
+  build/dev half is still a bash dispatcher (`tools/mosaic` →
+  `mosaic-*.sh`). Rewriting those as `src/*.am` would ship one
+  self-contained `mosaic` binary, mirroring how `amc` is distributed.
+
+See [`beyond-http.md`](https://github.com/amalgame-lang/Amalgame/blob/main/docs/proposals/beyond-http.md)
+for the server-side capability roadmap (UDP proxy, SFTP, WebDAV, …).
 
 ## Demo
 
