@@ -148,6 +148,13 @@ jobs:
         run: |
           set -e
           brew install bdw-gc openssl@3 nghttp2
+          # clang on the runner does NOT search the Homebrew prefix by
+          # default, so `#include <gc.h>` (bdw-gc) fails at the runtime
+          # header. Put the Homebrew prefix (+ keg-only openssl@3) on the
+          # compiler/linker search paths for the amc build below.
+          BREW="$(brew --prefix)"
+          export CPATH="$BREW/include:$(brew --prefix openssl@3)/include${CPATH:+:$CPATH}"
+          export LIBRARY_PATH="$BREW/lib:$(brew --prefix openssl@3)/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
           AMC_TAG=v0.8.74
           curl -sSL -o amc.tar.gz \
             "https://github.com/amalgame-lang/Amalgame/releases/download/${AMC_TAG}/amc-${AMC_TAG#v}-macos-arm64.tar.gz"
