@@ -878,6 +878,8 @@ amalgame-threading) and tear it down with
   reverse proxy + load balancing (`[[proxy]]`, RR / IP-hash /
   least-conn), static files, SSE, TCP + UDP raw proxy with
   load-balancing + IPv6 (`amalgame-net-stream` v0.3.0 — `TcpProxy` +
-  `UdpProxy`, multi-upstream RR / ip-hash / least-conn). **Partial:**
-  gRPC unary, SMTP *client*. **Not built yet:** SMTP *server* / IMAP /
-  POP3, SFTP, VPN/WireGuard, DNS/DoH, CDN, WebDAV.
+  `UdpProxy`, multi-upstream RR / ip-hash / least-conn), WebDAV
+  (`amalgame-net-webdav` v0.1.0 — Class 1 + opt-in Class 2 locks,
+  filesystem share). **Partial:** gRPC unary, SMTP *client*. **Not built
+  yet:** SMTP *server* / IMAP / POP3, SFTP, VPN/WireGuard, DNS/DoH, CDN;
+  WebDAV CalDAV/CardDAV.
