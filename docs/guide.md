@@ -876,8 +876,8 @@ amalgame-threading) and tear it down with
   [docs/proposals/beyond-http.md](https://github.com/amalgame-lang/Amalgame/blob/main/docs/proposals/beyond-http.md)
   tracks the nginx/apache-equivalent capabilities. **Shipped:**
   reverse proxy + load balancing (`[[proxy]]`, RR / IP-hash /
-  least-conn), static files, SSE. **Partial:** TCP raw proxy
-  (`amalgame-net-stream` — UDP + multi-upstream LB still TODO),
-  gRPC unary, SMTP *client*. **Not built yet:** UDP proxy, SMTP
-  *server* / IMAP / POP3, SFTP, VPN/WireGuard, DNS/DoH, CDN,
-  WebDAV.
+  least-conn), static files, SSE, TCP + UDP raw proxy with
+  load-balancing + IPv6 (`amalgame-net-stream` v0.3.0 — `TcpProxy` +
+  `UdpProxy`, multi-upstream RR / ip-hash / least-conn). **Partial:**
+  gRPC unary, SMTP *client*. **Not built yet:** SMTP *server* / IMAP /
+  POP3, SFTP, VPN/WireGuard, DNS/DoH, CDN, WebDAV.
