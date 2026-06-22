@@ -30,7 +30,7 @@ The config-driven server (src/mosaic-serve.am) ships as a per-platform
 binary in the Mosaic release. To build it from source you need amc plus
 the stack packages:
 
-    amc package add web@v0.38.0 net-http tls net-proxy service
+    amc package add web@v0.38.0 net-http@v0.29.2 tls net-proxy service
     amc build src/mosaic-serve.am -o mosaic-serve
     ./mosaic-serve "$CONFIG"
 
