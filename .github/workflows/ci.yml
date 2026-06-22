@@ -72,7 +72,12 @@ jobs:
         run: |
           set -e
           # service (>=0.2.0) carries RunAsService used by mosaic-serve's Main.
-          ( cd src && "$AMC" package add web net-http tls net-proxy service \
+          # Pin web@v0.38.0: mosaic-serve calls MosaicServer.WithWorkers /
+          # WithBacklog (web v0.38.0). amc's auto-resolver currently caps an
+          # unpinned `package add web` at v0.36.1, so pin the version that
+          # carries the symbols; its transitive deps (net-http >=0.29.2, …)
+          # resolve from the v0.38.0 manifest.
+          ( cd src && "$AMC" package add web@v0.38.0 net-http tls net-proxy service \
                    && "$AMC" build mosaic-serve.am -o mosaic-serve )
           file src/mosaic-serve
 
