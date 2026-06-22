@@ -895,11 +895,14 @@ Optional capability packages (mount on a Mosaic host as needed):
   least-conn), static files, SSE, TCP + UDP raw proxy with
   load-balancing + IPv6 (`amalgame-net-stream` v0.3.0 — `TcpProxy` +
   `UdpProxy`, multi-upstream RR / ip-hash / least-conn), WebDAV +
-  multi-user NAS (`amalgame-net-webdav` v0.6.1 — `WebDav` Class 1 +
+  multi-user NAS (`amalgame-net-webdav` v0.7.0 — `WebDav` Class 1 +
   opt-in Class 2 locks, plus `WebDavNas` for per-user `/home` + shared
   `/shared`, streaming PUT to disk, live `oc:size` directory sizes,
-  RFC 3986 href encoding), HTTP Basic auth (`amalgame-auth` v0.2.0 —
+  RFC 3986 href encoding; **CalDAV/CardDAV Phase 1** — MKCALENDAR,
+  `calendar-multiget`/`-query` REPORT, ETags/getctag,
+  `.well-known` + per-account discovery so clients sync via the account
+  URL), HTTP Basic auth (`amalgame-auth` v0.2.0 —
   multi-user scrypt credentials, LAN bypass, anti-bruteforce
-  `LoginGuard`). **Partial:** gRPC unary, SMTP *client*. **Not built
-  yet:** SMTP *server* / IMAP / POP3, SFTP, VPN/WireGuard, DNS/DoH, CDN;
-  WebDAV CalDAV/CardDAV.
+  `LoginGuard`). **Partial:** gRPC unary, SMTP *client*, CalDAV
+  `calendar-query` time-range filtering + `sync-collection`. **Not built
+  yet:** SMTP *server* / IMAP / POP3, SFTP, VPN/WireGuard, DNS/DoH, CDN.
