@@ -76,9 +76,12 @@ jobs:
           # (Http1.ServePool / HttpsH1Server.ServePool, which web v0.37.0+ calls).
           # amc's auto-resolver caps unpinned `package add` at stale tags
           # (web→v0.36.1, net-http→v0.28.0 — see Amalgame#656), and v0.28.0
-          # predates ServePool → undefined reference at link. Pin both to the
-          # versions that carry the required symbols.
-          ( cd src && "$AMC" package add web@v0.38.0 net-http@v0.29.2 tls net-proxy service \
+          # predates ServePool → undefined reference at link. Two steps:
+          # add the stack first, then force net-http@v0.29.2 LAST so a
+          # transitive re-resolution (net-proxy/service) can't clobber the pin
+          # back down to v0.28.0 (last write wins in the lock).
+          ( cd src && "$AMC" package add web@v0.38.0 tls net-proxy service \
+                   && "$AMC" package add net-http@v0.29.2 \
                    && "$AMC" build mosaic-serve.am -o mosaic-serve )
           file src/mosaic-serve
 
