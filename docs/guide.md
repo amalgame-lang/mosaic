@@ -241,13 +241,20 @@ policy elsewhere.
 ```toml
 [server]
 listen      = [":3000"]              # bind addresses; multiple = multi-port
-workers     = 0                      # 0 = auto (2 × CPUs).  planned (needs threading)
-queue_size  = 0                      # backlog. planned
+workers     = 0                      # HTTPS thread-pool size. 0 = library default (512)
+queue_size  = 0                      # kernel listen() backlog on :443. 0 = OS default
 ```
 
-For now Mosaic single-binds the first entry of `listen` via
-`Http1.Serve` / `Https.Serve`.  Multi-port + worker pool land in
-v0.6.
+Mosaic single-binds the first entry of `listen` via
+`MosaicServer.ServeHttps`.  Since `amalgame-web` v0.37.0 that path
+serves over a **bounded worker pool** (fixed-size thread pool —
+512 for HTTPS, 64 for the `:80` redirect — via `HttpsH1Server.ServePool`),
+so requests are handled concurrently and the "needs threading" caveat
+is gone.  As of `amalgame-web` v0.38.0 the `workers` / `queue_size`
+knobs are **wired through** — `mosaic serve` reads them and calls
+`MosaicServer.WithWorkers(n)` / `WithBacklog(n)` to size the HTTPS pool
+and listen backlog (`0` keeps the library defaults).  Still pending:
+multi-port binding of the remaining `listen` entries.
 
 ### 3.3 `[tls]` — HTTPS / ACME
 
@@ -860,12 +867,21 @@ amalgame-threading) and tear it down with
 
 | Repo | Versions | Purpose |
 |---|---|---|
-| [amalgame-lang/Amalgame](https://github.com/amalgame-lang/Amalgame) | v0.8.39+ | `amc` compiler |
-| [amalgame-lang/amalgame-crypto](https://github.com/amalgame-lang/amalgame-crypto) | v0.3.0+ | SHA-256 / HMAC / AES-256-GCM / JwsKey |
-| [amalgame-lang/amalgame-tls](https://github.com/amalgame-lang/amalgame-tls) | v0.3.1+ | TLS + ACME (native RFC 8555) |
-| [amalgame-lang/amalgame-net-http](https://github.com/amalgame-lang/amalgame-net-http) | v0.8.0+ | HTTP/1, HTTP/2, HTTPS, WS, WSS + graceful shutdown |
-| [amalgame-lang/amalgame-web](https://github.com/amalgame-lang/amalgame-web) | v0.11.3+ | Router, sessions, middlewares, WebApp |
+| [amalgame-lang/Amalgame](https://github.com/amalgame-lang/Amalgame) | v0.8.89+ | `amc` compiler |
+| [amalgame-lang/amalgame-crypto](https://github.com/amalgame-lang/amalgame-crypto) | v0.8.0+ | SHA-256 / HMAC / AES-256-GCM / JwsKey / scrypt |
+| [amalgame-lang/amalgame-tls](https://github.com/amalgame-lang/amalgame-tls) | v0.3.5+ | TLS + ACME (native RFC 8555) |
+| [amalgame-lang/amalgame-net-http](https://github.com/amalgame-lang/amalgame-net-http) | v0.29.2+ | HTTP/1, HTTP/2, HTTPS, WS, WSS + graceful shutdown |
+| [amalgame-lang/amalgame-web](https://github.com/amalgame-lang/amalgame-web) | v0.37.0+ | Router, sessions, middlewares, WebApp, `MosaicServer` (bounded worker pool) |
 | [amalgame-lang/mosaic](https://github.com/amalgame-lang/mosaic) | v0.5.3+ | this build tool |
+
+Optional capability packages (mount on a Mosaic host as needed):
+
+| Repo | Versions | Purpose |
+|---|---|---|
+| [amalgame-lang/amalgame-net-webdav](https://github.com/amalgame-lang/amalgame-net-webdav) | v0.6.1+ | WebDAV server + multi-user NAS (`WebDavNas`) |
+| [amalgame-lang/amalgame-auth](https://github.com/amalgame-lang/amalgame-auth) | v0.2.0+ | HTTP Basic auth, multi-user scrypt credentials, anti-bruteforce `LoginGuard` |
+| [amalgame-lang/amalgame-net-proxy](https://github.com/amalgame-lang/amalgame-net-proxy) | v0.2.1+ | Reverse proxy + load balancing (RR / IP-hash / least-conn) |
+| [amalgame-lang/amalgame-net-stream](https://github.com/amalgame-lang/amalgame-net-stream) | v0.3.0+ | TCP + UDP raw proxy with LB + IPv6 |
 
 ### Getting help
 
@@ -878,8 +894,12 @@ amalgame-threading) and tear it down with
   reverse proxy + load balancing (`[[proxy]]`, RR / IP-hash /
   least-conn), static files, SSE, TCP + UDP raw proxy with
   load-balancing + IPv6 (`amalgame-net-stream` v0.3.0 — `TcpProxy` +
-  `UdpProxy`, multi-upstream RR / ip-hash / least-conn), WebDAV
-  (`amalgame-net-webdav` v0.1.0 — Class 1 + opt-in Class 2 locks,
-  filesystem share). **Partial:** gRPC unary, SMTP *client*. **Not built
+  `UdpProxy`, multi-upstream RR / ip-hash / least-conn), WebDAV +
+  multi-user NAS (`amalgame-net-webdav` v0.6.1 — `WebDav` Class 1 +
+  opt-in Class 2 locks, plus `WebDavNas` for per-user `/home` + shared
+  `/shared`, streaming PUT to disk, live `oc:size` directory sizes,
+  RFC 3986 href encoding), HTTP Basic auth (`amalgame-auth` v0.2.0 —
+  multi-user scrypt credentials, LAN bypass, anti-bruteforce
+  `LoginGuard`). **Partial:** gRPC unary, SMTP *client*. **Not built
   yet:** SMTP *server* / IMAP / POP3, SFTP, VPN/WireGuard, DNS/DoH, CDN;
   WebDAV CalDAV/CardDAV.
