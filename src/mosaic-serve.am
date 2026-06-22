@@ -96,6 +96,19 @@ public class Program {
             let srv: TomlValue = root.Get("server")
             if (srv.Has("tls"))  { useTls = srv.Get("tls").AsBool() }
             if (srv.Has("port")) { port = srv.Get("port").AsInt() }
+            // HTTPS serving pool. `workers` = fixed thread-pool size on :443
+            // (concurrency ceiling); `queue_size` = kernel listen() backlog.
+            // 0 = leave the library default (512 threads / OS backlog), so an
+            // unset or `= 0` knob is a no-op. Applies to the TLS path
+            // (ServeHttps); the plain-HTTP dev path uses an unbounded loop.
+            if (srv.Has("workers")) {
+                let w: int = srv.Get("workers").AsInt()
+                if (w > 0) { m.WithWorkers(w) }
+            }
+            if (srv.Has("queue_size")) {
+                let q: int = srv.Get("queue_size").AsInt()
+                if (q > 0) { m.WithBacklog(q) }
+            }
         }
 
         // ── [[site]] ──────────────────────────────────
